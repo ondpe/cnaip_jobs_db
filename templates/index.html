@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <title>Job Scraper Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+    <div class="container mt-5">
+        <h1 class="mb-4">🚀 Přehled nalezených pozic ({{ count }})</h1>
+        
+        <div class="table-responsive bg-white p-3 shadow-sm rounded">
+            <table class="table table-hover">
+                <thead class="table-dark">
+                    <tr>
+                        <th>Firma</th>
+                        <th>Pozice</th>
+                        <th>Seniorita & Shrnutí</th>
+                        <th>Technologie</th>
+                        <th>Lokalita</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for job in jobs %}
+                    <tr>
+                        <td><strong>{{ job.company }}</strong></td>
+                        <td>{{ job.title }}</td>
+                        <td><small class="text-muted">{{ job.summary }}</small></td>
+                        <td>
+                            {% if job.keywords %}
+                                {% for kw in job.keywords.split(',') %}
+                                <span class="badge bg-primary">{{ kw.strip() }}</span>
+                                {% endfor %}
+                            {% endif %}
+                        </td>
+                        <td><span class="badge bg-secondary">{{ job.location }}</span></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</body>
+</html>
