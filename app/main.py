@@ -1,19 +1,15 @@
-from fastapi import FastAPI, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
-from fastapi.templating import Jinja2Templates
+from fastapi import FastAPI, Depends, HTTPException, Request, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from sqlalchemy.orm import Session
-from sqlalchemy import text
 import os
 import logging
-import csv
-import io
+from typing import List
 from datetime import datetime
 from dotenv import load_dotenv
 
-# Načtení proměnných z .env
 load_dotenv()
 
-# Importy
 from app.database import init_db, get_db
 from app.models import Source, Job, Setting
 from app.scraper import scrape_source
@@ -22,178 +18,94 @@ from app.analyzator import analyze_job_with_ai
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Job Scraper Pro")
+app = FastAPI(title="Job Scraper API")
 
-try:
-    templates = Jinja2Templates(directory="templates")
-except Exception:
-    templates = None
+# CORS konfigurace pro lokální vývoj
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+security = HTTPBasic()
+
+def authenticate_admin(credentials: HTTPBasicCredentials = Depends(security)):
+    admin_user = os.getenv("ADMIN_USERNAME", "admin")
+    admin_pass = os.getenv("ADMIN_PASSWORD", "admin123")
+    if credentials.username != admin_user or credentials.password != admin_pass:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Neplatné přihlašovací údaje",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return credentials.username
 
 @app.on_event("startup")
 def startup_event():
-    # Inicializace schématu v PostgreSQL
     init_db()
 
-@app.get("/", response_class=HTMLResponse)
-async def index(request: Request, db: Session = Depends(get_db)):
-    db_connected = True
-    jobs = []
-    sources = []
-    has_gemini_key = False
-    
-    try:
-        # Test spojení
-        db.execute(text("SELECT 1"))
-        
-        jobs = db.query(Job).order_by(Job.created_at.desc()).all()
-        sources = db.query(Source).all()
-        gemini_key = db.query(Setting).filter(Setting.key == "gemini_api_key").first()
-        has_gemini_key = bool(gemini_key and gemini_key.value)
-    except Exception as e:
-        logger.error(f"Database connection error: {e}")
-        db_connected = False
-    
-    return templates.TemplateResponse("index.html", {
-        "request": request,
-        "jobs": jobs,
-        "sources": sources,
-        "count": len(jobs),
-        "db_connected": db_connected,
-        "has_gemini_key": has_gemini_key
-    })
+# --- VEŘEJNÉ API ---
 
-@app.post("/sources")
+@app.get("/api/jobs")
+def get_jobs(db: Session = Depends(get_db)):
+    jobs = db.query(Job).order_by(Job.created_at.desc()).all()
+    return jobs
+
+@app.get("/api/sources")
+def get_sources(db: Session = Depends(get_db)):
+    return db.query(Source).all()
+
+# --- ADMIN API (Zabezpečené) ---
+
+@app.post("/api/admin/sources", dependencies=[Depends(authenticate_admin)])
 def add_source(url: str, name: str, db: Session = Depends(get_db)):
-    try:
-        new_source = Source(url=url, name=name)
-        db.add(new_source)
-        db.commit()
-        db.refresh(new_source)
-        return new_source
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Chyba při přidávání zdroje: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    new_source = Source(url=url, name=name)
+    db.add(new_source)
+    db.commit()
+    db.refresh(new_source)
+    return new_source
 
-@app.post("/scrape/{source_id}")
+@app.post("/api/admin/scrape/{source_id}", dependencies=[Depends(authenticate_admin)])
 async def run_scrape(source_id: int, db: Session = Depends(get_db)):
-    try:
-        source = db.query(Source).filter(Source.id == source_id).first()
-        if not source: raise HTTPException(404, detail="Zdroj nenalezen")
-        
-        scraped = await scrape_source(source.url, source.name)
-        
-        # Pokud se nic nenačetlo (např. chyba sítě), raději nic nemažeme
-        if not scraped:
-            return {"jobs_saved": 0, "jobs_found": 0, "message": "Nebyly nalezeny žádné pozice (možná chyba spojení)."}
+    source = db.query(Source).filter(Source.id == source_id).first()
+    if not source: raise HTTPException(404, detail="Zdroj nenalezen")
+    
+    scraped = await scrape_source(source.url, source.name)
+    if not scraped:
+        return {"message": "Nebyly nalezeny žádné pozice"}
 
-        found_titles = []
-        new_count = 0
-        
-        for item in scraped:
-            title = item['title']
-            found_titles.append(title)
-            
-            # Kontrola, zda už pozici máme
-            existing_job = db.query(Job).filter(Job.title == title, Job.source_id == source.id).first()
-            
-            if existing_job:
-                # AKTUALIZACE: Přepíšeme základní data, ale zachováme AI (summary, keywords, last_analyzed_at)
-                existing_job.company = item.get('company')
-                existing_job.location = item.get('location')
-                existing_job.raw_content = item.get('raw_content')
-                # AI pole schválně neaktualizujeme, pokud už tam jsou
-            else:
-                # NOVÁ POZICE
-                db.add(Job(
-                    title=title, 
-                    company=item.get('company'), 
-                    location=item.get('location'), 
-                    raw_content=item.get('raw_content'), 
-                    source_id=source.id
-                ))
-                new_count += 1
-        
-        # SYNCHRONIZACE: Smažeme pozice, které už na webu nejsou
-        db.query(Job).filter(
-            Job.source_id == source.id, 
-            ~Job.title.in_(found_titles)
-        ).delete(synchronize_session=False)
-        
-        # Statistiky
-        source.last_crawled_at = datetime.utcnow()
-        source.last_scrape_count = new_count
-        source.last_scrape_found = len(scraped)
-        
-        db.commit()
-        return {"jobs_saved": new_count, "jobs_found": len(scraped)}
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Chyba při scrapování: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/api/settings/gemini-key")
-def update_gemini_key(key: str, db: Session = Depends(get_db)):
-    try:
-        setting = db.query(Setting).filter(Setting.key == "gemini_api_key").first()
-        if setting:
-            setting.value = key
+    found_titles = []
+    new_count = 0
+    for item in scraped:
+        title = item['title']
+        found_titles.append(title)
+        existing_job = db.query(Job).filter(Job.title == title, Job.source_id == source.id).first()
+        if existing_job:
+            existing_job.company = item.get('company')
+            existing_job.location = item.get('location')
+            existing_job.raw_content = item.get('raw_content')
         else:
-            db.add(Setting(key="gemini_api_key", value=key))
-        db.commit()
-        return {"message": "API klíč byl uložen."}
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+            db.add(Job(title=title, company=item.get('company'), location=item.get('location'), raw_content=item.get('raw_content'), source_id=source.id))
+            new_count += 1
+    
+    db.query(Job).filter(Job.source_id == source.id, ~Job.title.in_(found_titles)).delete(synchronize_session=False)
+    source.last_crawled_at = datetime.utcnow()
+    source.last_scrape_count = new_count
+    source.last_scrape_found = len(scraped)
+    db.commit()
+    return {"jobs_saved": new_count, "jobs_found": len(scraped)}
 
-@app.get("/export/jobs")
-def export_jobs(db: Session = Depends(get_db)):
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(["ID", "Title", "Company", "Location", "Keywords", "Summary", "Created At"])
-    
-    jobs = db.query(Job).all()
-    for job in jobs:
-        writer.writerow([job.id, job.title, job.company, job.location, job.keywords, job.summary, job.created_at])
-    
-    output.seek(0)
-    return StreamingResponse(
-        iter([output.getvalue()]),
-        media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename=jobs_{datetime.now().strftime('%Y%m%d')}.csv"}
-    )
-
-@app.get("/export/sources")
-def export_sources(db: Session = Depends(get_db)):
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(["ID", "Name", "URL", "Is Active"])
-    
-    sources = db.query(Source).all()
-    for s in sources:
-        writer.writerow([s.id, s.name, s.url, s.is_active])
-    
-    output.seek(0)
-    return StreamingResponse(
-        iter([output.getvalue()]),
-        media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename=sources_{datetime.now().strftime('%Y%m%d')}.csv"}
-    )
-
-@app.post("/jobs/run-ai-analysis")
+@app.post("/api/admin/run-ai-analysis", dependencies=[Depends(authenticate_admin)])
 def run_analysis(db: Session = Depends(get_db)):
-    try:
-        key_setting = db.query(Setting).filter(Setting.key == "gemini_api_key").first()
-        api_key = key_setting.value if key_setting else os.getenv("GEMINI_API_KEY")
-        
-        unprocessed = db.query(Job).filter((Job.summary == "") | (Job.summary == None)).all()
-        for job in unprocessed:
-            analysis = analyze_job_with_ai(job.raw_content, api_key)
-            job.keywords = analysis["keywords"]
-            job.summary = f"{analysis['summary']} (Seniorita: {analysis['seniority']})"
-            job.last_analyzed_at = datetime.utcnow()
-        db.commit()
-        return {"message": f"Analyzováno {len(unprocessed)} pozic."}
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+    key_setting = db.query(Setting).filter(Setting.key == "gemini_api_key").first()
+    api_key = key_setting.value if key_setting else os.getenv("GEMINI_API_KEY")
+    unprocessed = db.query(Job).filter((Job.summary == "") | (Job.summary == None)).all()
+    for job in unprocessed:
+        analysis = analyze_job_with_ai(job.raw_content, api_key)
+        job.keywords = analysis["keywords"]
+        job.summary = f"{analysis['summary']} (Seniorita: {analysis['seniority']})"
+        job.last_analyzed_at = datetime.utcnow()
+    db.commit()
+    return {"message": f"Analyzováno {len(unprocessed)} pozic."}
