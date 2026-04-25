@@ -2,6 +2,16 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  @apply bg-gray-50 text-gray-900;
+:root {
+  --cnaip-blue: #002B5C;
+  --cnaip-gray: #6B7280;
 }
+
+body {
+  @apply bg-white text-gray-900 font-sans antialiased;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+.text-cnaip-blue { color: var(--cnaip-blue); }
+.bg-cnaip-blue { background-color: var(--cnaip-blue); }
+.border-cnaip-blue { border-color: var(--cnaip-blue); }
