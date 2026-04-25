@@ -1,92 +1,106 @@
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Request
-from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi import FastAPI, Depends, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
-from app.database import init_db, get_db
-from app.models import Source, Job
-from app import models
-from app.scraper import scrape_source
-from datetime import datetime
-from app.analyzator import analyze_job_with_ai
-
 import os
 import logging
-import pandas as pd
-import io
+from datetime import datetime
 
-# Konfigurace logování
+# Importy z našeho projektu
+from app.database import init_db, get_db
+from app.models import Source, Job
+from app.scraper import scrape_source
+from app.analyzator import analyze_job_with_ai
+
+# Logování
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Cesta k šablonám
-current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(current_dir)
-TEMPLATES_DIR = os.path.join(parent_dir, "templates")
+# Inicializace aplikace
+app = FastAPI(title="Job Scraper Pro")
 
-app = FastAPI(title="Job Scraper API")
-templates = Jinja2Templates(directory=TEMPLATES_DIR)
+# Nastavení šablon - zkusíme relativní cestu k aktuálnímu pracovnímu adresáři
+# Většinou je to v Dockeru/Dyadu kořen projektu
+try:
+    templates = Jinja2Templates(directory="templates")
+    logger.info("Šablony inicializovány ze složky 'templates'")
+except Exception as e:
+    logger.error(f"Chyba při inicializaci šablon: {e}")
 
 @app.on_event("startup")
 def startup_event():
-    data_dir = os.path.join(parent_dir, "data")
-    os.makedirs(data_dir, exist_ok=True)
-    logger.info(f"DB Dir: {data_dir}")
+    # Vytvoření složky pro data pokud neexistuje
+    if not os.path.exists("data"):
+        os.makedirs("data")
     init_db()
+    logger.info("Databáze inicializována")
 
-# Testovací endpoint pro ověření funkčnosti
-@app.get("/ping", response_class=PlainTextResponse)
-def ping():
-    return "pong - server is alive"
-
+# --- HLAVNÍ STRÁNKA ---
 @app.get("/", response_class=HTMLResponse)
-async def read_root(request: Request, db: Session = Depends(get_db)):
-    logger.info("Request on /")
+async def index(request: Request, db: Session = Depends(get_db)):
+    logger.info("GET /")
     try:
         jobs = db.query(Job).order_by(Job.created_at.desc()).all()
         sources = db.query(Source).all()
         return templates.TemplateResponse("index.html", {
-            "request": request, 
-            "jobs": jobs, 
+            "request": request,
+            "jobs": jobs,
             "sources": sources,
             "count": len(jobs)
         })
     except Exception as e:
-        logger.error(f"Render error: {e}")
-        return HTMLResponse(content=f"<h1>Chyba serveru</h1><p>{str(e)}</p>", status_code=500)
+        logger.error(f"Chyba na hlavní stránce: {e}")
+        return HTMLResponse(content=f"<h1>Chyba aplikace</h1><p>{str(e)}</p>", status_code=500)
 
-# --- ZDROJE ---
-@app.get("/sources")
-def get_sources(db: Session = Depends(get_db)):
-    sources = db.query(Source).all()
-    return {"sources": sources, "count": len(sources)}
+# --- API ENDPOINTY ---
+@app.get("/api/health")
+def health():
+    return {"status": "ok", "time": datetime.now().isoformat()}
 
 @app.post("/sources")
-def create_source(url: str, name: str, db: Session = Depends(get_db)):
+def add_source(url: str, name: str, db: Session = Depends(get_db)):
     new_source = Source(url=url, name=name)
     db.add(new_source)
     db.commit()
     db.refresh(new_source)
     return new_source
 
-# --- SCRAPING & AI ---
 @app.post("/scrape/{source_id}")
-async def scrape_jobs(source_id: int, db: Session = Depends(get_db)):
+async def run_scrape(source_id: int, db: Session = Depends(get_db)):
     source = db.query(Source).filter(Source.id == source_id).first()
-    if not source: raise HTTPException(404)
-    jobs_data = await scrape_source(source.url, source.name)
-    saved = 0
-    for jd in jobs_data:
-        if not db.query(Job).filter(Job.title == jd['title'], Job.source_id == source_id).first():
-            db.add(Job(title=jd['title'], company=jd['company'], location=jd['location'], raw_content=jd['raw_content'], source_id=source_id))
-            saved += 1
-    db.commit()
-    return {"jobs_saved": saved}
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+    
+    try:
+        scraped_jobs = await scrape_source(source.url, source.name)
+        new_count = 0
+        for item in scraped_jobs:
+            # Kontrola duplicity podle názvu
+            exists = db.query(Job).filter(Job.title == item['title'], Job.source_id == source.id).first()
+            if not exists:
+                job = Job(
+                    title=item['title'],
+                    company=item.get('company', 'Unknown'),
+                    location=item.get('location', 'N/A'),
+                    raw_content=item.get('raw_content', ''),
+                    source_id=source.id,
+                    summary="",
+                    keywords=""
+                )
+                db.add(job)
+                new_count += 1
+        db.commit()
+        return {"jobs_found": len(scraped_jobs), "jobs_saved": new_count}
+    except Exception as e:
+        logger.error(f"Scrape error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/jobs/run-ai-analysis")
-def run_ai_analysis(db: Session = Depends(get_db)):
-    jobs = db.query(Job).filter(Job.summary == "").all()
-    for job in jobs:
-        ai = analyze_job_with_ai(job.raw_content)
-        job.keywords, job.summary = ai["keywords"], f"{ai['summary']} (Seniorita: {ai['seniority']})"
+def run_analysis(db: Session = Depends(get_db)):
+    unprocessed = db.query(Job).filter((Job.summary == "") | (Job.summary == None)).all()
+    for job in unprocessed:
+        analysis = analyze_job_with_ai(job.raw_content)
+        job.keywords = analysis["keywords"]
+        job.summary = f"{analysis['summary']} (Seniorita: {analysis['seniority']})"
     db.commit()
-    return {"message": f"Zpracováno {len(jobs)} inzerátů."}
+    return {"message": f"Analyzováno {len(unprocessed)} pozic."}
