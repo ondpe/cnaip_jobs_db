@@ -5,7 +5,7 @@ import axios from 'axios'
 import { 
   Plus, Play, Cpu, Search, 
   RefreshCw, Clock, Briefcase, MapPin, 
-  Key, X, ExternalLink, Trash2, Filter, CheckCircle2, AlertCircle, AlertTriangle, Terminal, ChevronRight, LogOut, ShieldCheck, User, Lock, Loader2, Edit3, Save
+  Key, X, ExternalLink, Trash2, Filter, CheckCircle2, AlertCircle, AlertTriangle, Terminal, ChevronRight, LogOut, ShieldCheck, User, Lock, Loader2, Edit3, Save, FileDown
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -89,6 +89,29 @@ const fetchData = async () => {
     }
   } catch (e: any) { 
     if (e.response?.status === 401) logout()
+  }
+}
+
+const downloadCsv = async (type: 'sources' | 'jobs') => {
+  const adminAuth = getAdminAuth()
+  if (!adminAuth) return
+  
+  try {
+    const response = await axios.get(`/api/admin/export/${type}`, {
+      ...adminAuth,
+      responseType: 'blob'
+    })
+    
+    const url = window.URL.createObjectURL(new Blob([response.data]))
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', `${type}_export.csv`)
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+  } catch (error) {
+    console.error('Chyba při exportu:', error)
+    alert('Export se nezdařil.')
   }
 }
 
@@ -398,7 +421,7 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- AI & Creds Forms section remains same -->
+      <!-- AI & Creds Forms section -->
       <div v-if="isEditingAi" class="px-5 pb-5 pt-0 animate-in slide-in-from-top-2">
         <div class="p-6 bg-blue-50/50 rounded-2xl border border-blue-100 space-y-4">
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -479,9 +502,14 @@ onUnmounted(() => {
         <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
           <div class="p-5 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
             <h2 class="font-black text-[#002B5C] uppercase tracking-widest text-xs">Zdroje</h2>
-            <button @click="isAddingSource = !isAddingSource" :class="['p-1.5 rounded-lg transition-colors', isAddingSource ? 'bg-blue-600 text-white' : 'bg-[#002B5C] text-white hover:bg-blue-900']">
-              <Plus :size="16" />
-            </button>
+            <div class="flex gap-2">
+              <button @click="downloadCsv('sources')" class="p-1.5 bg-gray-100 text-gray-600 hover:bg-gray-200 rounded-lg transition-colors" title="Exportovat zdroje do CSV">
+                <FileDown :size="16" />
+              </button>
+              <button @click="isAddingSource = !isAddingSource" :class="['p-1.5 rounded-lg transition-colors', isAddingSource ? 'bg-blue-600 text-white' : 'bg-[#002B5C] text-white hover:bg-blue-900']">
+                <Plus :size="16" />
+              </button>
+            </div>
           </div>
 
           <div v-if="isAddingSource" class="p-5 bg-blue-50/30 border-b border-blue-50 animate-in slide-in-from-top-2">
@@ -556,9 +584,14 @@ onUnmounted(() => {
         <div class="flex items-center gap-4 bg-white p-3 rounded-2xl shadow-sm border border-gray-100">
           <Search class="ml-3 text-gray-300" :size="20" />
           <input v-model="searchQuery" type="text" placeholder="Hledat..." class="flex-1 border-none focus:ring-0 text-md">
-          <button @click="onlyNeedsAi = !onlyNeedsAi" :class="['px-4 py-1.5 rounded-full text-xs font-bold transition-all border', onlyNeedsAi ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-gray-50 border-gray-100 text-gray-500']">
-            <Filter :size="14" class="inline mr-1" /> Jen neanalyzované
-          </button>
+          <div class="flex gap-2 items-center">
+            <button @click="downloadCsv('jobs')" class="p-2 bg-gray-50 text-gray-500 hover:bg-gray-100 rounded-lg transition-all border border-gray-100" title="Exportovat pozice do CSV">
+              <FileDown :size="18" />
+            </button>
+            <button @click="onlyNeedsAi = !onlyNeedsAi" :class="['px-4 py-1.5 rounded-full text-xs font-bold transition-all border', onlyNeedsAi ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-gray-50 border-gray-100 text-gray-500']">
+              <Filter :size="14" class="inline mr-1" /> Jen neanalyzované
+            </button>
+          </div>
         </div>
 
         <div v-if="filteredJobs.length" class="bg-white p-3 rounded-2xl border border-gray-100 flex flex-col shadow-sm">
@@ -628,7 +661,6 @@ onUnmounted(() => {
                   <div :class="['rounded-xl p-4 text-sm border-l-4 flex flex-col gap-3', job.summary?.includes('⚠️') ? 'bg-amber-50 text-amber-700 border-amber-200' : job.summary?.includes('Chyba AI') ? 'bg-red-50 text-red-700 border-red-200' : job.summary ? 'bg-blue-50/50 text-[#002B5C] border-blue-200' : 'bg-gray-50 text-gray-400 border-gray-200 italic']">
                     <span>{{ job.summary || 'Tato pozice zatím nebyla zpracována AI modelem.' }}</span>
                     
-                    <!-- Zobrazení explicitního linku pod popisem -->
                     <div v-if="job.link" class="pt-2 mt-2 border-t border-gray-200/50">
                       <span class="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Odkaz na inzerát</span>
                       <a :href="job.link" target="_blank" class="text-blue-600 hover:underline break-all font-medium flex items-center gap-2">

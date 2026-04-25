@@ -11,6 +11,7 @@
     "autoprefixer": "^10.4.0",
     "axios": "^1.6.0",
     "lucide-vue-next": "^0.300.0",
+    "pandas": "^0.0.3",
     "postcss": "^8.4.0",
     "psycopg2-binary": "^0.0.1",
     "tailwindcss": "^3.4.0",

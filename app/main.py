@@ -2,13 +2,15 @@ from fastapi import FastAPI, Depends, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 from sqlalchemy import not_
 from pydantic import BaseModel
 import os
 import logging
+import io
+import pandas as pd
 from typing import List, Optional
 from datetime import datetime
 from dotenv import load_dotenv
@@ -343,6 +345,47 @@ async def run_scrape(source_id: int, db: Session = Depends(get_db)):
         return {"new": new_count, "relevant": relevant_found, "total_raw": len(scraped)}
     finally:
         current_activity = None
+
+@app.get("/api/admin/export/sources", dependencies=[Depends(authenticate_admin)])
+def export_sources(db: Session = Depends(get_db)):
+    sources = db.query(Source).all()
+    data = []
+    for s in sources:
+        data.append({
+            "id": s.id,
+            "name": s.name,
+            "url": s.url,
+            "is_active": s.is_active,
+            "last_crawled_at": s.last_crawled_at
+        })
+    df = pd.DataFrame(data)
+    stream = io.StringIO()
+    df.to_csv(stream, index=False)
+    response = StreamingResponse(iter([stream.getvalue()]), media_type="text/csv")
+    response.headers["Content-Disposition"] = "attachment; filename=sources_export.csv"
+    return response
+
+@app.get("/api/admin/export/jobs", dependencies=[Depends(authenticate_admin)])
+def export_jobs(db: Session = Depends(get_db)):
+    jobs = db.query(Job).all()
+    data = []
+    for j in jobs:
+        data.append({
+            "id": j.id,
+            "title": j.title,
+            "company": j.company,
+            "location": j.location,
+            "keywords": j.keywords,
+            "summary": j.summary,
+            "link": j.link,
+            "created_at": j.created_at
+        })
+    df = pd.DataFrame(data)
+    stream = io.StringIO()
+    df.to_csv(stream, index=False)
+    response = StreamingResponse(iter([stream.getvalue()]), media_type="text/csv")
+    response.headers["Content-Disposition"] = "attachment; filename=jobs_export.csv"
+    return response
 
 # Montování statických souborů pro lokální vývoj
 if os.path.exists(os.path.join(frontend_dist, "assets")):
