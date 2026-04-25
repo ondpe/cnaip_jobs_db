@@ -30,9 +30,9 @@ def analyze_job_with_ai(text: str, api_key: str = None):
         return {"is_job": True, "keywords": "", "seniority": "", "summary": "Chybí API klíč."}
 
     try:
-        add_debug_log(f"Volám Gemini (klíč: {api_key[:4]}...{api_key[-4:]}) pro text délky {len(text)}")
+        add_debug_log(f"Volám Gemini 2.0 Flash (klíč: {api_key[:4]}...{api_key[-4:]}) pro text délky {len(text)}")
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel('gemini-2.0-flash')
         
         prompt = f"""
         Jsi expert na nábor v IT. Analyzuj text a rozhodni, zda jde o konkrétní pracovní inzerát.
