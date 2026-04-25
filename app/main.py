@@ -201,8 +201,12 @@ def run_analysis(db: Session = Depends(get_db)):
             db.delete(job)
             deleted_count += 1
         else:
-            job.keywords = analysis.get("keywords", "")
-            job.summary = f"{analysis.get('summary', 'Bez shrnutí')} (Seniorita: {analysis.get('seniority', 'Nezjištěno')})"
+            # Přidáme senioritu jako tag do keywords
+            seniority = analysis.get("seniority", "Medior")
+            tech_keywords = analysis.get("keywords", "")
+            job.keywords = f"{seniority}, {tech_keywords}" if tech_keywords else seniority
+            
+            job.summary = analysis.get('summary', 'Bez shrnutí')
             job.last_analyzed_at = datetime.utcnow()
             analyzed_count += 1
     
@@ -221,9 +225,13 @@ def analyze_single_job(job_id: int, db: Session = Depends(get_db)):
         db.delete(job)
         db.commit()
         return {"status": "deleted"}
-        
-    job.keywords = analysis.get("keywords", "")
-    job.summary = f"{analysis.get('summary', 'Bez shrnutí')} (Seniorita: {analysis.get('seniority', 'Nezjištěno')})"
+    
+    # Přidáme senioritu jako tag do keywords
+    seniority = analysis.get("seniority", "Medior")
+    tech_keywords = analysis.get("keywords", "")
+    job.keywords = f"{seniority}, {tech_keywords}" if tech_keywords else seniority
+    
+    job.summary = analysis.get('summary', 'Bez shrnutí')
     job.last_analyzed_at = datetime.utcnow()
     db.commit()
     return analysis

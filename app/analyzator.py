@@ -37,9 +37,9 @@ def analyze_job_with_ai(text: str, api_key: str = None, model_name: str = "gemin
         Jsi expert na nábor v IT. Analyzuj text a rozhodni, zda jde o konkrétní pracovní inzerát.
         Vrať striktně pouze JSON s těmito klíči:
         is_job: boolean (false pokud je to navigace, cookies, patička, seznam odkazů jako '76 nabídek', nebo obecné info o firmě).
-        keywords: 5 klíčových technologií (pokud is_job=true).
-        seniority: Junior/Medior/Senior (pokud is_job=true).
-        summary: jedna věta česky o náplni práce (pokud is_job=true).
+        keywords: 5 klíčových technologií jako string oddělený čárkou (např. "Python, SQL, AWS").
+        seniority: Junior, Medior nebo Senior (jedno slovo).
+        summary: 2-3 věty česky o náplni práce, technologiích a benefitech.
         
         Text k analýze:
         {text[:4000]}
@@ -54,10 +54,15 @@ def analyze_job_with_ai(text: str, api_key: str = None, model_name: str = "gemin
             cleaned = cleaned[start:end]
         
         data = json.loads(cleaned)
+        
+        # Vyčištění keywords od případných závorek, které tam AI občas propašuje
+        raw_keywords = data.get("keywords", "")
+        clean_keywords = raw_keywords.replace('[', '').replace(']', '').replace('{', '').replace('}', '').strip()
+        
         add_debug_log(f"AI analýza hotova (model: {model_name}). is_job={data.get('is_job')}")
         return {
             "is_job": data.get("is_job", True),
-            "keywords": data.get("keywords", ""),
+            "keywords": clean_keywords,
             "seniority": data.get("seniority", "Medior"),
             "summary": data.get("summary", "Pozice v oblasti AI.")
         }

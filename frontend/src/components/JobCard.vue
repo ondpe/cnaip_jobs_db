@@ -23,7 +23,12 @@ const initials = computed(() => {
 
 const keywordList = computed(() => {
   if (!props.job.keywords) return []
-  return props.job.keywords.split(',').map(k => k.trim()).filter(k => k)
+  // Odstraníme případné závorky, které by mohly zůstat, a rozdělíme podle čárky
+  return props.job.keywords
+    .replace(/[\[\]\{\}]/g, '')
+    .split(',')
+    .map(k => k.trim())
+    .filter(k => k && k.length > 0)
 })
 
 const formatDate = (dateStr: string) => {
@@ -63,15 +68,19 @@ const formatDate = (dateStr: string) => {
       
       <!-- Keywords as tags -->
       <div v-if="keywordList.length" class="flex flex-wrap gap-2 mb-4">
-        <span v-for="kw in keywordList" :key="kw" class="px-2.5 py-1 rounded bg-gray-50 text-gray-500 text-[10px] font-bold uppercase tracking-wider border border-gray-100">
+        <span v-for="(kw, idx) in keywordList" :key="idx" 
+          :class="[
+            'px-2.5 py-1 rounded text-[10px] font-bold uppercase tracking-wider border transition-colors',
+            idx === 0 ? 'bg-blue-600 text-white border-blue-600' : 'bg-gray-50 text-gray-500 border-gray-100'
+          ]">
           {{ kw }}
         </span>
       </div>
 
       <!-- Summary snippet -->
-      <div v-if="job.summary" class="flex items-start gap-3 text-sm text-gray-500 italic mb-4 leading-relaxed">
+      <div v-if="job.summary" class="flex items-start gap-3 text-sm text-gray-600 mb-4 leading-relaxed bg-gray-50/30 p-3 rounded-xl border border-gray-50">
         <Cpu :size="16" class="text-purple-400 mt-0.5 shrink-0" />
-        <p>{{ job.summary }}</p>
+        <p class="italic">{{ job.summary }}</p>
       </div>
 
       <!-- Visible link -->
