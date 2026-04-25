@@ -49,7 +49,7 @@ def authenticate_admin(credentials: HTTPBasicCredentials = Depends(security)):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Neplatné přihlašovací údaje",
-            headers={"WWW-Authenticate": "Basic"},
+            # Odstraněna hlavička WWW-Authenticate, aby prohlížeč nevyhazoval svůj login
         )
     return credentials.username
 
