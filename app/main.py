@@ -46,6 +46,14 @@ class SourceCreate(BaseModel):
 class BulkAction(BaseModel):
     ids: List[int]
 
+class JobUpdate(BaseModel):
+    title: Optional[str] = None
+    company: Optional[str] = None
+    location: Optional[str] = None
+    keywords: Optional[str] = None
+    summary: Optional[str] = None
+    link: Optional[str] = None
+
 class CredentialsUpdate(BaseModel):
     username: str
     password: str
@@ -100,6 +108,18 @@ def get_status():
 @app.get("/api/admin/debug/logs", dependencies=[Depends(authenticate_admin)])
 def get_debug_logs():
     return {"logs": list(last_logs)}
+
+@app.put("/api/admin/jobs/{job_id}", dependencies=[Depends(authenticate_admin)])
+def update_job(job_id: int, job_data: JobUpdate, db: Session = Depends(get_db)):
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job: raise HTTPException(404, detail="Pozice nenalezena")
+    
+    for field, value in job_data.dict(exclude_unset=True).items():
+        setattr(job, field, value)
+    
+    db.commit()
+    db.refresh(job)
+    return job
 
 @app.delete("/api/admin/jobs/{job_id}", dependencies=[Depends(authenticate_admin)])
 def delete_job(job_id: int, db: Session = Depends(get_db)):

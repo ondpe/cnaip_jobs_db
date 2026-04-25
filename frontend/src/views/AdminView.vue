@@ -5,7 +5,7 @@ import axios from 'axios'
 import { 
   Plus, Play, Cpu, Search, 
   RefreshCw, Clock, Briefcase, MapPin, 
-  Key, X, ExternalLink, Trash2, Filter, CheckCircle2, AlertCircle, AlertTriangle, Terminal, ChevronRight, LogOut, ShieldCheck, User, Lock, Loader2
+  Key, X, ExternalLink, Trash2, Filter, CheckCircle2, AlertCircle, AlertTriangle, Terminal, ChevronRight, LogOut, ShieldCheck, User, Lock, Loader2, Edit3, Save
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -41,6 +41,8 @@ const scrapingIds = ref<Set<number>>(new Set())
 const analyzingIds = ref<Set<number>>(new Set())
 const deletingSourceId = ref<number | null>(null)
 const deletingJobId = ref<number | null>(null)
+const editingJobId = ref<number | null>(null)
+const jobForm = ref<Partial<Job>>({})
 const showBulkDeleteConfirm = ref(false)
 const showLogs = ref(false)
 const debugLogs = ref<string[]>([])
@@ -52,7 +54,6 @@ const newSource = ref({ name: '', url: '' })
 const newCreds = ref({ username: '', password: '' })
 
 const showConfirmAnalysis = ref(false)
-const lastAnalysisResult = ref<{ count: number, deleted: number } | null>(null)
 const onlyNeedsAi = ref(false)
 
 const getAdminAuth = () => {
@@ -136,6 +137,24 @@ watch(loading, (newVal) => {
     startPolling()
   }
 })
+
+const startEditing = (job: Job) => {
+  editingJobId.value = job.id
+  jobForm.value = { ...job }
+}
+
+const saveJobUpdate = async () => {
+  const adminAuth = getAdminAuth()
+  if (!adminAuth || !editingJobId.value) return
+  loading.value = true
+  try {
+    await axios.put(`/api/admin/jobs/${editingJobId.value}`, jobForm.value, adminAuth)
+    editingJobId.value = null
+    await fetchData()
+  } catch (e) {
+    alert('Chyba při ukládání.')
+  } finally { loading.value = false }
+}
 
 const addSource = async () => {
   const adminAuth = getAdminAuth()
@@ -239,7 +258,7 @@ const saveCredentials = async () => {
 const runBulkAiAnalysis = async () => {
   const adminAuth = getAdminAuth()
   if (!adminAuth) return
-  loading.value = true; showConfirmAnalysis.value = false; lastAnalysisResult.value = null
+  loading.value = true; showConfirmAnalysis.value = false
   try {
     await axios.post('/api/admin/run-ai-analysis', {}, adminAuth)
     await fetchData()
@@ -280,7 +299,7 @@ const filteredJobs = computed(() => {
   const q = searchQuery.value.toLowerCase()
   return jobs.value.filter(j => {
     const matchesSearch = j.title.toLowerCase().includes(q) || j.company.toLowerCase().includes(q)
-    const needsAi = !j.last_analyzed_at || j.summary.includes('Čeká na AI') || j.summary.includes('Chyba AI')
+    const needsAi = !j.last_analyzed_at || j.summary?.includes('Čeká na AI') || j.summary?.includes('Chyba AI')
     return matchesSearch && (!onlyNeedsAi.value || needsAi)
   })
 })
@@ -363,7 +382,7 @@ onUnmounted(() => { clearInterval(logInterval); clearInterval(statusInterval); }
         </div>
       </div>
 
-      <!-- Inline AI Settings Form (zůstává stejné) -->
+      <!-- Forms (AI, Creds) sections remain same -->
       <div v-if="isEditingAi" class="px-5 pb-5 pt-0 animate-in slide-in-from-top-2">
         <div class="p-6 bg-blue-50/50 rounded-2xl border border-blue-100 space-y-4">
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -392,7 +411,6 @@ onUnmounted(() => { clearInterval(logInterval); clearInterval(statusInterval); }
         </div>
       </div>
 
-      <!-- Credentials Settings Form (zůstává stejné) -->
       <div v-if="isEditingCreds" class="px-5 pb-5 pt-0 animate-in slide-in-from-top-2">
         <div class="p-6 bg-gray-50/80 rounded-2xl border border-gray-200 space-y-4">
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -421,7 +439,7 @@ onUnmounted(() => { clearInterval(logInterval); clearInterval(statusInterval); }
       </div>
     </div>
 
-    <!-- Debug Log Console s indikátorem aktivity -->
+    <!-- Debug Log Console -->
     <div v-if="showLogs" class="flex flex-col gap-2 animate-in slide-in-from-top-4 duration-300">
       <div v-if="currentActivity" class="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest flex items-center gap-3 shadow-lg shadow-blue-200">
         <Loader2 :size="16" class="animate-spin" /> Běžící aktivita: {{ currentActivity }}
@@ -449,7 +467,6 @@ onUnmounted(() => { clearInterval(logInterval); clearInterval(statusInterval); }
             </button>
           </div>
 
-          <!-- Inline Add Source Form -->
           <div v-if="isAddingSource" class="p-5 bg-blue-50/30 border-b border-blue-50 animate-in slide-in-from-top-2">
             <div class="space-y-4">
               <div>
@@ -513,7 +530,6 @@ onUnmounted(() => { clearInterval(logInterval); clearInterval(statusInterval); }
                 </div>
               </div>
             </div>
-            <div v-if="!sources.length" class="p-10 text-center text-gray-400 text-sm">Zatím žádné zdroje.</div>
           </div>
         </div>
       </div>
@@ -554,44 +570,86 @@ onUnmounted(() => { clearInterval(logInterval); clearInterval(statusInterval); }
             <div class="flex items-start gap-4">
               <input type="checkbox" v-model="selectedJobIds" :value="job.id" class="mt-2 rounded text-blue-600">
               <div class="flex-1 min-w-0">
-                <div class="flex justify-between items-start mb-4">
-                  <div class="flex-1 min-w-0 pr-4">
-                    <div class="flex items-center gap-2 mb-1">
-                      <h3 class="font-black text-xl text-[#002B5C] truncate">{{ job.title }}</h3>
-                      <a v-if="job.link" :href="job.link" target="_blank" class="text-gray-300 hover:text-blue-600 transition-colors"><ExternalLink :size="16" /></a>
+                <div v-if="editingJobId !== job.id">
+                  <div class="flex justify-between items-start mb-4">
+                    <div class="flex-1 min-w-0 pr-4">
+                      <div class="flex items-center gap-2 mb-1">
+                        <h3 class="font-black text-xl text-[#002B5C] truncate">{{ job.title }}</h3>
+                        <a v-if="job.link" :href="job.link" target="_blank" class="text-gray-300 hover:text-blue-600 transition-colors"><ExternalLink :size="16" /></a>
+                      </div>
+                      <div class="flex items-center gap-4 text-sm font-medium text-gray-500">
+                        <span class="flex items-center gap-1.5"><Briefcase :size="14" /> {{ job.company }}</span>
+                        <span class="flex items-center gap-1.5"><MapPin :size="14" /> {{ job.location || 'Dle webu' }}</span>
+                      </div>
                     </div>
-                    <div class="flex items-center gap-4 text-sm font-medium text-gray-500">
-                      <span class="flex items-center gap-1.5"><Briefcase :size="14" /> {{ job.company }}</span>
-                      <span class="flex items-center gap-1.5"><MapPin :size="14" /> {{ job.location || 'Dle webu' }}</span>
+                    <div class="flex flex-col items-end gap-2 shrink-0">
+                      <div class="flex gap-1">
+                        <button @click="analyzeSingleJob(job.id)" :disabled="analyzingIds.has(job.id)" class="px-3 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 text-[10px] font-black uppercase rounded-lg transition-all">
+                          <Cpu :size="12" :class="['inline mr-1', { 'animate-pulse': analyzingIds.has(job.id) }]" /> Analyzovat
+                        </button>
+                        <button @click="startEditing(job)" class="p-1.5 hover:bg-blue-50 rounded-lg text-gray-300 hover:text-blue-500 transition-all"><Edit3 :size="16" /></button>
+                        <button @click="deletingJobId = job.id" class="p-1.5 hover:bg-red-50 rounded-lg text-gray-300 hover:text-red-500 transition-all"><Trash2 :size="16" /></button>
+                      </div>
+                      <div class="flex items-center gap-1">
+                        <span v-if="job.last_analyzed_at" class="text-green-500 text-[10px] font-bold"><CheckCircle2 :size="14" class="inline" /> OK</span>
+                        <span v-else class="text-amber-400 text-[10px] font-bold"><AlertCircle :size="14" class="inline" /> AI?</span>
+                      </div>
                     </div>
                   </div>
-                  <div class="flex flex-col items-end gap-2 shrink-0">
-                    <div class="flex gap-1">
-                      <button @click="analyzeSingleJob(job.id)" :disabled="analyzingIds.has(job.id)" class="px-3 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 text-[10px] font-black uppercase rounded-lg transition-all">
-                        <Cpu :size="12" :class="['inline mr-1', { 'animate-pulse': analyzingIds.has(job.id) }]" /> Analyzovat
-                      </button>
-                      <button @click="deletingJobId = job.id" class="p-1.5 hover:bg-red-50 rounded-lg text-gray-300 hover:text-red-500 transition-all"><Trash2 :size="16" /></button>
+
+                  <div v-if="deletingJobId === job.id" class="mb-4 p-4 bg-red-50 rounded-xl border border-red-100 animate-in fade-in slide-in-from-top-2">
+                    <p class="text-[10px] font-bold text-red-600 mb-2 uppercase tracking-widest">Smazat tuto pozici?</p>
+                    <div class="flex gap-2">
+                      <button @click="confirmDeleteJob(job.id)" :disabled="loading" class="bg-red-600 text-white px-3 py-1 rounded text-[10px] font-black hover:bg-red-700 disabled:opacity-50">SMAZAT</button>
+                      <button @click="deletingJobId = null" class="bg-white border border-gray-200 text-gray-500 px-3 py-1 rounded text-[10px] font-black hover:bg-gray-50">ZRUŠIT</button>
                     </div>
-                    <div class="flex items-center gap-1">
-                      <span v-if="job.last_analyzed_at" class="text-green-500 text-[10px] font-bold"><CheckCircle2 :size="14" class="inline" /> OK</span>
-                      <span v-else class="text-amber-400 text-[10px] font-bold"><AlertCircle :size="14" class="inline" /> AI?</span>
+                  </div>
+
+                  <div v-if="job.keywords" class="flex flex-wrap gap-1.5 mb-4">
+                    <span v-for="kw in job.keywords.split(',')" :key="kw" class="px-2 py-0.5 rounded bg-gray-50 text-gray-400 text-[9px] font-bold uppercase border border-gray-100">{{ kw.trim() }}</span>
+                  </div>
+                  <div :class="['rounded-xl p-4 text-sm border-l-4 flex flex-col gap-3', job.summary?.includes('⚠️') ? 'bg-amber-50 text-amber-700 border-amber-200' : job.summary?.includes('Chyba AI') ? 'bg-red-50 text-red-700 border-red-200' : job.summary ? 'bg-blue-50/50 text-[#002B5C] border-blue-200' : 'bg-gray-50 text-gray-400 border-gray-200 italic']">
+                    <span>{{ job.summary || 'Tato pozice zatím nebyla zpracována AI modelem.' }}</span>
+                    <div v-if="job.summary?.includes('⚠️')" class="pt-2">
+                       <button @click="startEditing(job)" class="bg-amber-600 text-white px-4 py-1.5 rounded-lg text-[10px] font-black uppercase hover:bg-amber-700 transition-all flex items-center gap-2 w-fit">
+                         <Edit3 :size="12" /> Upravit ručně
+                       </button>
                     </div>
                   </div>
                 </div>
 
-                <div v-if="deletingJobId === job.id" class="mb-4 p-4 bg-red-50 rounded-xl border border-red-100 animate-in fade-in slide-in-from-top-2">
-                  <p class="text-[10px] font-bold text-red-600 mb-2 uppercase tracking-widest">Smazat tuto pozici?</p>
-                  <div class="flex gap-2">
-                    <button @click="confirmDeleteJob(job.id)" :disabled="loading" class="bg-red-600 text-white px-3 py-1 rounded text-[10px] font-black hover:bg-red-700 disabled:opacity-50">SMAZAT</button>
-                    <button @click="deletingJobId = null" class="bg-white border border-gray-200 text-gray-500 px-3 py-1 rounded text-[10px] font-black hover:bg-gray-50">ZRUŠIT</button>
+                <!-- Job Editing Form -->
+                <div v-else class="space-y-4 animate-in slide-in-from-top-2">
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Název pozice</label>
+                      <input v-model="jobForm.title" type="text" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-100">
+                    </div>
+                    <div>
+                      <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Firma</label>
+                      <input v-model="jobForm.company" type="text" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-100">
+                    </div>
                   </div>
-                </div>
-
-                <div v-if="job.keywords" class="flex flex-wrap gap-1.5 mb-4">
-                  <span v-for="kw in job.keywords.split(',')" :key="kw" class="px-2 py-0.5 rounded bg-gray-50 text-gray-400 text-[9px] font-bold uppercase border border-gray-100">{{ kw.trim() }}</span>
-                </div>
-                <div :class="['rounded-xl p-4 text-sm border-l-4', job.summary?.includes('⚠️') ? 'bg-amber-50 text-amber-700 border-amber-200' : job.summary?.includes('Chyba AI') ? 'bg-red-50 text-red-700 border-red-200' : job.summary ? 'bg-blue-50/50 text-[#002B5C] border-blue-200' : 'bg-gray-50 text-gray-400 border-gray-200 italic']">
-                  {{ job.summary || 'Tato pozice zatím nebyla zpracována AI modelem.' }}
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Lokalita</label>
+                      <input v-model="jobForm.location" type="text" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-100">
+                    </div>
+                    <div>
+                      <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Klíčová slova (čárka)</label>
+                      <input v-model="jobForm.keywords" type="text" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-100">
+                    </div>
+                  </div>
+                  <div>
+                    <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Shrnutí / Popis</label>
+                    <textarea v-model="jobForm.summary" rows="3" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-100"></textarea>
+                  </div>
+                  <div class="flex justify-end gap-3 pt-2">
+                    <button @click="editingJobId = null" class="text-xs font-black text-gray-400 hover:text-gray-600 uppercase tracking-widest">Zrušit</button>
+                    <button @click="saveJobUpdate" :disabled="loading" class="bg-blue-600 text-white px-6 py-2.5 rounded-xl text-xs font-black hover:bg-blue-700 transition-all flex items-center gap-2 shadow-md shadow-blue-100">
+                      <Save :size="16" /> ULOŽIT ZMĚNY
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
