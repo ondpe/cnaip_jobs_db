@@ -15,6 +15,12 @@ from app.models import Source, Job, Setting
 from app.scraper import scrape_source
 from app.analyzator import analyze_job_with_ai
 
+# Import migrační logiky
+try:
+    from migrate_data import migrate as run_db_migration
+except ImportError:
+    run_db_migration = None
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -37,7 +43,10 @@ async def index(request: Request, db: Session = Depends(get_db)):
         jobs = db.query(Job).order_by(Job.created_at.desc()).all()
         sources = db.query(Source).all()
         gemini_key = db.query(Setting).filter(Setting.key == "gemini_api_key").first()
-        is_supabase = "postgresql" in str(db.get_bind().url)
+        
+        # Detekce typu databáze pro UI
+        db_url = str(db.get_bind().url)
+        is_supabase = "postgresql" in db_url or "supabase" in db_url
         
         return templates.TemplateResponse("index.html", {
             "request": request,
@@ -49,6 +58,17 @@ async def index(request: Request, db: Session = Depends(get_db)):
         })
     except Exception as e:
         return HTMLResponse(f"<h1>Chyba</h1><p>{str(e)}</p>")
+
+@app.post("/api/admin/migrate-db")
+async def trigger_migration():
+    if not run_db_migration:
+        raise HTTPException(status_code=500, detail="Migrační skript nenalezen.")
+    
+    try:
+        run_db_migration()
+        return {"message": "Migrace byla úspěšně spuštěna a dokončena."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Migrace selhala: {str(e)}")
 
 @app.get("/export/jobs")
 def export_jobs(db: Session = Depends(get_db)):
