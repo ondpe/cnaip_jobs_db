@@ -26,7 +26,7 @@
                     AI: {{ 'Aktivní' if has_gemini_key else 'Bez klíče' }}
                 </span>
                 <button class="btn btn-outline-light btn-sm me-2" data-bs-toggle="modal" data-bs-target="#settingsModal">
-                    <i class="bi bi-gear"></i> Nastavení
+                    <i class="bi bi-key"></i> Nastavit AI klíč
                 </button>
                 <button onclick="runAiAnalysis()" class="btn btn-primary btn-sm">
                     <i class="bi bi-cpu"></i> Spustit AI analýzu
@@ -110,12 +110,12 @@
         </div>
     </div>
 
-    <!-- Modal: Nastavení -->
+    <!-- Modal: Nastavení AI klíče -->
     <div class="modal fade" id="settingsModal" tabindex="-1">
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">Nastavení aplikace</h5>
+                    <h5 class="modal-title">Nastavení AI klíče</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
