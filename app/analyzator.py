@@ -28,8 +28,9 @@ def analyze_job_with_ai(text: str, api_key: str = None, model_name: str = "gemin
         return {"is_job": True, "summary": "Chybí API klíč."}
 
     try:
+        clean_key = api_key.strip()
         add_debug_log(f"Volám {model_name} pro text délky {len(text)}")
-        genai.configure(api_key=api_key)
+        genai.configure(api_key=clean_key)
         model = genai.GenerativeModel(model_name)
         
         prompt = f"""

@@ -135,7 +135,8 @@ def get_gemini_key(db: Session = Depends(get_db)):
 def list_available_models(key: str):
     """Vypíše dostupné modely pro daný API klíč."""
     try:
-        genai.configure(api_key=key)
+        clean_key = key.strip()
+        genai.configure(api_key=clean_key)
         models = []
         for m in genai.list_models():
             if 'generateContent' in m.supported_generation_methods:
@@ -151,17 +152,18 @@ def list_available_models(key: str):
 @app.post("/api/admin/settings/gemini-key", dependencies=[Depends(authenticate_admin)])
 def set_gemini_key(key: str, model_name: Optional[str] = "gemini-1.5-flash", db: Session = Depends(get_db)):
     try:
-        genai.configure(api_key=key)
+        clean_key = key.strip()
+        genai.configure(api_key=clean_key)
         model = genai.GenerativeModel(model_name)
         model.generate_content("ping", generation_config={"max_output_tokens": 1})
     except Exception as e:
         logger.error(f"Neplatný AI klíč nebo model: {e}")
         raise HTTPException(status_code=400, detail=f"Ověření selhalo: {str(e)}")
 
-    # Uložení klíče
+    # Uložení vyčištěného klíče
     key_setting = db.query(Setting).filter(Setting.key == "gemini_api_key").first()
-    if key_setting: key_setting.value = key
-    else: db.add(Setting(key="gemini_api_key", value=key))
+    if key_setting: key_setting.value = clean_key
+    else: db.add(Setting(key="gemini_api_key", value=clean_key))
     
     # Uložení modelu
     model_setting = db.query(Setting).filter(Setting.key == "gemini_model_name").first()
@@ -176,6 +178,8 @@ def get_ai_config(db: Session):
     model_setting = db.query(Setting).filter(Setting.key == "gemini_model_name").first()
     
     api_key = key_setting.value if key_setting and key_setting.value else os.getenv("GEMINI_API_KEY")
+    if api_key: api_key = api_key.strip()
+    
     model_name = model_setting.value if model_setting and model_setting.value else "gemini-1.5-flash"
     
     return api_key, model_name
