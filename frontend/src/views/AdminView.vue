@@ -110,33 +110,43 @@ const fetchStatus = async () => {
   } catch (e) {}
 }
 
-const startPolling = () => {
-  if (logInterval) clearInterval(logInterval)
+const startStatusPolling = () => {
   if (statusInterval) clearInterval(statusInterval)
-  fetchLogs()
   fetchStatus()
-  logInterval = setInterval(fetchLogs, 1000)
-  statusInterval = setInterval(fetchStatus, 1500)
+  statusInterval = setInterval(fetchStatus, 5000) // Kontrola stavu každých 5s
 }
+
+const startLogPolling = () => {
+  if (logInterval) return 
+  fetchLogs()
+  logInterval = setInterval(fetchLogs, 5000) // Logy každých 5s
+}
+
+const stopLogPolling = () => {
+  if (logInterval) {
+    clearInterval(logInterval)
+    logInterval = null
+  }
+}
+
+// Watchers pro chytré spouštění/zastavování logů
+watch(currentActivity, (newVal) => {
+  if (newVal) {
+    startLogPolling()
+    if (!showLogs.value) showLogs.value = true // Automaticky ukážeme logy při aktivitě
+  } else if (!showLogs.value) {
+    stopLogPolling()
+  }
+})
 
 const toggleLogs = () => {
   showLogs.value = !showLogs.value
   if (showLogs.value) {
-    startPolling()
-  } else {
-    clearInterval(logInterval)
-    clearInterval(statusInterval)
-    logInterval = null
-    statusInterval = null
+    startLogPolling()
+  } else if (!currentActivity.value) {
+    stopLogPolling()
   }
 }
-
-watch(loading, (newVal) => {
-  if (newVal && !showLogs.value) {
-    showLogs.value = true
-    startPolling()
-  }
-})
 
 const startEditing = (job: Job) => {
   editingJobId.value = job.id
@@ -316,8 +326,15 @@ const toggleSelectAllJobs = () => {
 
 const formatDate = (d: string | null) => d ? new Date(d).toLocaleString('cs-CZ', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '---'
 
-onMounted(fetchData)
-onUnmounted(() => { clearInterval(logInterval); clearInterval(statusInterval); })
+onMounted(() => {
+  fetchData()
+  startStatusPolling() // Spustíme trvalou kontrolu stavu (5s)
+})
+
+onUnmounted(() => { 
+  clearInterval(logInterval)
+  clearInterval(statusInterval) 
+})
 </script>
 
 <template>
@@ -382,7 +399,7 @@ onUnmounted(() => { clearInterval(logInterval); clearInterval(statusInterval); }
         </div>
       </div>
 
-      <!-- Forms (AI, Creds) sections remain same -->
+      <!-- AI & Creds Forms (zůstávají stejné) -->
       <div v-if="isEditingAi" class="px-5 pb-5 pt-0 animate-in slide-in-from-top-2">
         <div class="p-6 bg-blue-50/50 rounded-2xl border border-blue-100 space-y-4">
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -453,6 +470,7 @@ onUnmounted(() => { clearInterval(logInterval); clearInterval(statusInterval); }
         <div v-for="(log, idx) in debugLogs" :key="idx" class="mb-1">
           <span class="text-gray-600">>>></span> {{ log }}
         </div>
+        <div v-if="!debugLogs.length" class="italic text-gray-600">Čekám na data z backendu...</div>
       </div>
     </div>
 
