@@ -1,35 +1,39 @@
+import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from app.models import Base
-import os
 
-# Database URL - prioritně bere environment proměnnou (Supabase), jinak fallback na SQLite
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./data/jobs.db")
+# 1. Zkusíme vzít celou URL z prostředí
+DATABASE_URL = os.getenv("DATABASE_URL")
 
-# Oprava pro Heroku/Supabase (postgres:// -> postgresql://)
+# 2. Fallback: Sestavení URL ze známého hosta a hesla (Supabase)
+if not DATABASE_URL:
+    db_pass = os.getenv("DB_PASSWORD")
+    if db_pass:
+        # Poznámka: Pokud se připojení nezdaří (timeout), použijte v Supabase 
+        # v sekci Settings -> Database -> Connection String verzi 'Pooler' (port 6543)
+        DATABASE_URL = f"postgresql://postgres:{db_pass}@db.aoslyffxsmktzsrjakrb.supabase.co:5432/postgres"
+
+# 3. Finální fallback na lokální SQLite
+if not DATABASE_URL:
+    DATABASE_URL = "sqlite:///./data/jobs.db"
+
+# Oprava prefixu pro SQLAlchemy
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-# Create engine
-engine = create_engine(
-    DATABASE_URL,
-    # connect_args jen pro SQLite
-    connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {}
-)
+# Vytvoření enginu
+engine_args = {}
+if "sqlite" in DATABASE_URL:
+    engine_args["connect_args"] = {"check_same_thread": False}
 
-# Create session factory
+engine = create_engine(DATABASE_URL, **engine_args)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-
 def init_db():
-    """Initialize database tables"""
-    # V Supabase doporučujeme vytvořit tabulky přes SQL editor, 
-    # ale SQLAlchemy se o to pokusí i zde při startu.
     Base.metadata.create_all(bind=engine)
 
-
 def get_db():
-    """Dependency for getting database session"""
     db = SessionLocal()
     try:
         yield db
