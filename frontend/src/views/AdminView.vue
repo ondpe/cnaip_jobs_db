@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, onUnmounted, watch } from 'vue'
+import { ref, onMounted, computed, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
 import axios from 'axios'
 import { 
-  Plus, Play, Cpu, Globe, Search, 
+  Plus, Play, Cpu, Search, 
   RefreshCw, Clock, Briefcase, MapPin, 
-  Key, X, ExternalLink, Trash2, Edit3, Filter, CheckCircle2, AlertCircle, AlertTriangle, Terminal, ChevronRight
+  Key, X, ExternalLink, Trash2, Filter, CheckCircle2, AlertCircle, AlertTriangle, Terminal, ChevronRight, LogOut
 } from 'lucide-vue-next'
+
+const router = useRouter()
 
 interface Source {
   id: number; name: string; url: string; last_crawled_at: string | null; 
@@ -44,11 +47,24 @@ const showConfirmAnalysis = ref(false)
 const lastAnalysisResult = ref<{ count: number, deleted: number } | null>(null)
 const onlyNeedsAi = ref(false)
 
-// Pro jednoduchost jsou přihlašovací údaje zde, v reálu by se mohly brát z login formuláře
-// Tyto údaje musí odpovídat ADMIN_USERNAME a ADMIN_PASSWORD v .env souboru
-const adminAuth = { auth: { username: 'admin', password: 'admin123' } }
+// Získání credentials ze session
+const getAdminAuth = () => {
+  const username = sessionStorage.getItem('admin_user')
+  const password = sessionStorage.getItem('admin_pass')
+  if (!username || !password) return null
+  return { auth: { username, password } }
+}
+
+const logout = () => {
+  sessionStorage.removeItem('admin_user')
+  sessionStorage.removeItem('admin_pass')
+  router.push('/login')
+}
 
 const fetchData = async () => {
+  const adminAuth = getAdminAuth()
+  if (!adminAuth) return router.push('/login')
+  
   try {
     const [srcRes, jobRes, keyRes] = await Promise.all([
       axios.get('/api/sources'),
@@ -63,10 +79,15 @@ const fetchData = async () => {
     if (!selectedModel.value || selectedModel.value === 'gemini-1.5-flash') {
       selectedModel.value = keyRes.data.model_name
     }
-  } catch (e) { console.error("Chyba při načítání dat", e) }
+  } catch (e: any) { 
+    if (e.response?.status === 401) logout()
+    console.error("Chyba při načítání dat", e) 
+  }
 }
 
 const fetchLogs = async () => {
+  const adminAuth = getAdminAuth()
+  if (!adminAuth) return
   try {
     const res = await axios.get('/api/admin/debug/logs', adminAuth)
     debugLogs.value = res.data.logs
@@ -84,7 +105,8 @@ const toggleLogs = () => {
 }
 
 const addSource = async () => {
-  if (!newSource.value.name || !newSource.value.url) return
+  const adminAuth = getAdminAuth()
+  if (!newSource.value.name || !newSource.value.url || !adminAuth) return
   loading.value = true
   try {
     await axios.post('/api/admin/sources', newSource.value, adminAuth)
@@ -95,6 +117,8 @@ const addSource = async () => {
 }
 
 const confirmDeleteSource = async (id: number) => {
+  const adminAuth = getAdminAuth()
+  if (!adminAuth) return
   loading.value = true
   try {
     await axios.delete(`/api/admin/sources/${id}`, adminAuth)
@@ -104,24 +128,25 @@ const confirmDeleteSource = async (id: number) => {
 }
 
 const fetchAvailableModels = async () => {
-  if (!newAiKey.value) return
+  const adminAuth = getAdminAuth()
+  if (!newAiKey.value || !adminAuth) return
   keyError.value = ''; loading.value = true
   try {
     const res = await axios.get(`/api/admin/settings/list-models?key=${newAiKey.value}`, adminAuth)
     availableModels.value = res.data
     if (availableModels.value.length > 0) {
-      // Zkusíme předvybrat flash verzi, pokud existuje
       const flash = availableModels.value.find(m => m.name.includes('flash'))
       if (flash) selectedModel.value = flash.name
       else selectedModel.value = availableModels.value[0].name
     }
   } catch (e: any) {
-    keyError.value = e.response?.data?.detail || 'Nepodařilo se načíst seznam modelů. Zkontrolujte klíč.'
+    keyError.value = e.response?.data?.detail || 'Nepodařilo se načíst seznam modelů.'
   } finally { loading.value = false }
 }
 
 const saveAiSettings = async () => {
-  if (!newAiKey.value || !selectedModel.value) return
+  const adminAuth = getAdminAuth()
+  if (!newAiKey.value || !selectedModel.value || !adminAuth) return
   keyError.value = ''; loading.value = true
   try {
     await axios.post(`/api/admin/settings/gemini-key?key=${newAiKey.value}&model_name=${selectedModel.value}`, {}, adminAuth)
@@ -132,6 +157,8 @@ const saveAiSettings = async () => {
 }
 
 const runBulkAiAnalysis = async () => {
+  const adminAuth = getAdminAuth()
+  if (!adminAuth) return
   loading.value = true; showConfirmAnalysis.value = false; lastAnalysisResult.value = null
   try {
     const res = await axios.post('/api/admin/run-ai-analysis', {}, adminAuth)
@@ -140,12 +167,16 @@ const runBulkAiAnalysis = async () => {
 }
 
 const analyzeSingleJob = async (id: number) => {
+  const adminAuth = getAdminAuth()
+  if (!adminAuth) return
   analyzingIds.value.add(id)
   try { await axios.post(`/api/admin/analyze-job/${id}`, {}, adminAuth); await fetchData() }
   finally { analyzingIds.value.delete(id) }
 }
 
 const scrapeSingle = async (id: number) => {
+  const adminAuth = getAdminAuth()
+  if (!adminAuth) return
   scrapingIds.value.add(id)
   try { await axios.post(`/api/admin/scrape/${id}`, {}, adminAuth); await fetchData() } 
   finally { scrapingIds.value.delete(id) }
@@ -162,7 +193,8 @@ const scrapeBulk = async () => {
 }
 
 const deleteJob = async (id: number) => {
-  if (!confirm('Opravdu chcete tuto pozici smazat?')) return
+  const adminAuth = getAdminAuth()
+  if (!adminAuth || !confirm('Opravdu chcete tuto pozici smazat?')) return
   await axios.delete(`/api/admin/jobs/${id}`, adminAuth); fetchData()
 }
 
@@ -199,9 +231,14 @@ onUnmounted(() => clearInterval(logInterval))
           <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Správa zdrojů a AI analýzy</p>
         </div>
       </div>
-      <router-link to="/" class="text-xs font-black text-gray-400 hover:text-[#002B5C] uppercase tracking-widest transition-colors flex items-center gap-2">
-        <ExternalLink :size="14" /> Zpět na web
-      </router-link>
+      <div class="flex items-center gap-6">
+        <router-link to="/" class="text-xs font-black text-gray-400 hover:text-[#002B5C] uppercase tracking-widest transition-colors flex items-center gap-2">
+          <ExternalLink :size="14" /> Zpět na web
+        </router-link>
+        <button @click="logout" class="text-xs font-black text-red-400 hover:text-red-600 uppercase tracking-widest transition-colors flex items-center gap-2">
+          <LogOut :size="14" /> Odhlásit se
+        </button>
+      </div>
     </div>
 
     <!-- Top Stats / Actions -->
