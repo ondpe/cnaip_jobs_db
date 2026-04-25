@@ -42,6 +42,10 @@ class JobUpdate(BaseModel):
     keywords: Optional[str] = None
     link: Optional[str] = None
 
+class SourceCreate(BaseModel):
+    name: str
+    url: str
+
 def authenticate_admin(credentials: HTTPBasicCredentials = Depends(security)):
     admin_user = os.getenv("ADMIN_USERNAME", "admin")
     admin_pass = os.getenv("ADMIN_PASSWORD", "admin123")
@@ -64,6 +68,22 @@ def get_jobs(db: Session = Depends(get_db)):
 @app.get("/api/sources")
 def get_sources(db: Session = Depends(get_db)):
     return db.query(Source).all()
+
+@app.post("/api/admin/sources", dependencies=[Depends(authenticate_admin)])
+def create_source(source_data: SourceCreate, db: Session = Depends(get_db)):
+    new_source = Source(name=source_data.name, url=source_data.url)
+    db.add(new_source)
+    db.commit()
+    db.refresh(new_source)
+    return new_source
+
+@app.delete("/api/admin/sources/{source_id}", dependencies=[Depends(authenticate_admin)])
+def delete_source(source_id: int, db: Session = Depends(get_db)):
+    source = db.query(Source).filter(Source.id == source_id).first()
+    if not source: raise HTTPException(404, detail="Zdroj nenalezen")
+    db.delete(source)
+    db.commit()
+    return {"status": "deleted"}
 
 @app.get("/api/admin/debug/logs", dependencies=[Depends(authenticate_admin)])
 def get_debug_logs():
@@ -129,7 +149,6 @@ def run_analysis(db: Session = Depends(get_db)):
     api_key = get_active_api_key(db)
     add_debug_log(f"Spouštím hromadnou analýzu. Klíč nalezen: {bool(api_key)}")
     
-    # Hledáme pozice, které buď nemají summary, nebo mají fallback text
     unprocessed = db.query(Job).filter(
         (Job.summary == "") | 
         (Job.summary == None) | 

@@ -19,7 +19,7 @@ interface Job {
 
 const sources = ref<Source[]>([])
 const jobs = ref<Job[]>([])
-const selectedIds = ref<number[]>([])
+const selectedSourceIds = ref<number[]>([])
 const searchQuery = ref('')
 const loading = ref(false)
 const hasAiKey = ref(false)
@@ -32,6 +32,9 @@ const analyzingIds = ref<Set<number>>(new Set())
 const showLogs = ref(false)
 const debugLogs = ref<string[]>([])
 let logInterval: any = null
+
+const showSourceModal = ref(false)
+const newSource = ref({ name: '', url: '' })
 
 const showConfirmAnalysis = ref(false)
 const lastAnalysisResult = ref<{ count: number, deleted: number } | null>(null)
@@ -72,6 +75,23 @@ const toggleLogs = () => {
   }
 }
 
+const addSource = async () => {
+  if (!newSource.value.name || !newSource.value.url) return
+  loading.value = true
+  try {
+    await axios.post('/api/admin/sources', newSource.value, adminAuth)
+    newSource.value = { name: '', url: '' }
+    showSourceModal.value = false
+    await fetchData()
+  } finally { loading.value = false }
+}
+
+const deleteSource = async (id: number) => {
+  if (!confirm('Opravdu smazat tento zdroj dat? Smažete i vazbu na jeho pozice.')) return
+  await axios.delete(`/api/admin/sources/${id}`, adminAuth)
+  fetchData()
+}
+
 const saveAiKey = async () => {
   if (!newAiKey.value) return
   keyError.value = ''; loading.value = true
@@ -103,6 +123,16 @@ const scrapeSingle = async (id: number) => {
   finally { scrapingIds.value.delete(id) }
 }
 
+const scrapeBulk = async () => {
+  loading.value = true
+  try {
+    for (const id of selectedSourceIds.value) {
+      await scrapeSingle(id)
+    }
+    selectedSourceIds.value = []
+  } finally { loading.value = false }
+}
+
 const deleteJob = async (id: number) => {
   if (!confirm('Opravdu chcete tuto pozici smazat?')) return
   await axios.delete(`/api/admin/jobs/${id}`, adminAuth); fetchData()
@@ -116,6 +146,11 @@ const filteredJobs = computed(() => {
     return matchesSearch && (!onlyNeedsAi.value || needsAi)
   })
 })
+
+const isAllSourcesSelected = computed(() => sources.value.length > 0 && selectedSourceIds.value.length === sources.value.length)
+const toggleSelectAllSources = () => {
+  selectedSourceIds.value = isAllSourcesSelected.value ? [] : sources.value.map(s => s.id)
+}
 
 const formatDate = (d: string | null) => d ? new Date(d).toLocaleString('cs-CZ', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '---'
 
@@ -168,7 +203,6 @@ onUnmounted(() => clearInterval(logInterval))
         <span>BACKEND DEBUG CONSOLE</span>
         <span class="animate-pulse">● LIVE</span>
       </div>
-      <div v-if="debugLogs.length === 0" class="text-gray-600">Zatím žádné záznamy. Spusťte scraping nebo analýzu...</div>
       <div v-for="(log, idx) in debugLogs" :key="idx" class="mb-1">
         <span class="text-gray-600">>>></span> {{ log }}
       </div>
@@ -180,23 +214,46 @@ onUnmounted(() => clearInterval(logInterval))
         <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
           <div class="p-5 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
             <h2 class="font-black text-[#002B5C] uppercase tracking-widest text-xs">Zdroje</h2>
-            <span class="text-[10px] font-bold px-2 py-0.5 bg-gray-200 rounded text-gray-600">{{ sources.length }}</span>
+            <button @click="showSourceModal = true" class="p-1.5 bg-[#002B5C] text-white rounded-lg hover:bg-blue-900 transition-colors">
+              <Plus :size="16" />
+            </button>
           </div>
-          <div class="divide-y divide-gray-50 max-h-[600px] overflow-y-auto">
+          
+          <!-- Bulk actions for sources -->
+          <div v-if="sources.length" class="px-5 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+            <label class="flex items-center gap-2 text-[10px] font-black text-gray-400 uppercase tracking-widest cursor-pointer">
+              <input type="checkbox" :checked="isAllSourcesSelected" @change="toggleSelectAllSources" class="rounded text-blue-600"> Vybrat vše
+            </label>
+            <button v-if="selectedSourceIds.length" @click="scrapeBulk" class="text-[10px] font-black bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 transition-all flex items-center gap-2">
+              <Play :size="12" /> SPUSTIT ({{ selectedSourceIds.length }})
+            </button>
+          </div>
+
+          <div class="divide-y divide-gray-50 max-h-[500px] overflow-y-auto custom-scrollbar">
             <div v-for="source in sources" :key="source.id" class="p-5 hover:bg-gray-50/50 transition-colors group">
-              <div class="flex justify-between items-start">
+              <div class="flex items-start gap-4">
+                <input type="checkbox" v-model="selectedSourceIds" :value="source.id" class="mt-1 rounded text-blue-600">
                 <div class="flex-1 min-w-0">
-                  <h3 class="font-bold text-[#002B5C] truncate">{{ source.name }}</h3>
-                  <div class="text-[10px] text-gray-400 mt-1 flex items-center gap-2">
-                    <Clock :size="10" /> {{ formatDate(source.last_crawled_at) }}
-                    <span v-if="source.last_scrape_count" class="text-green-500">+{{ source.last_scrape_count }}</span>
+                  <div class="flex justify-between items-start">
+                    <h3 class="font-bold text-[#002B5C] truncate">{{ source.name }}</h3>
+                    <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                      <button @click="scrapeSingle(source.id)" :disabled="scrapingIds.has(source.id)" class="p-1 text-blue-600 hover:bg-blue-50 rounded">
+                        <RefreshCw :size="14" :class="{ 'animate-spin': scrapingIds.has(source.id) }" />
+                      </button>
+                      <button @click="deleteSource(source.id)" class="p-1 text-red-400 hover:bg-red-50 rounded">
+                        <Trash2 :size="14" />
+                      </button>
+                    </div>
+                  </div>
+                  <div class="text-[10px] text-gray-400 mt-1 flex flex-wrap gap-2">
+                    <span class="flex items-center gap-1"><Clock :size="10" /> {{ formatDate(source.last_crawled_at) }}</span>
+                    <span v-if="source.last_scrape_count" class="text-green-500 font-bold">+{{ source.last_scrape_count }}</span>
+                    <span class="truncate max-w-[150px] italic">{{ source.url }}</span>
                   </div>
                 </div>
-                <button @click="scrapeSingle(source.id)" :disabled="scrapingIds.has(source.id)" class="p-2 hover:bg-blue-50 rounded-lg text-blue-600 transition-all">
-                  <RefreshCw :size="16" :class="{ 'animate-spin': scrapingIds.has(source.id) }" />
-                </button>
               </div>
             </div>
+            <div v-if="!sources.length" class="p-10 text-center text-gray-400 text-sm">Zatím žádné zdroje.</div>
           </div>
         </div>
       </div>
@@ -215,8 +272,11 @@ onUnmounted(() => clearInterval(logInterval))
           <div v-for="job in filteredJobs" :key="job.id" class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm hover:border-blue-100 transition-all group">
             <div class="flex justify-between items-start mb-4">
               <div class="flex-1 min-w-0 pr-4">
-                <h3 class="font-black text-xl text-[#002B5C] truncate">{{ job.title }}</h3>
-                <div class="flex items-center gap-4 text-sm font-medium text-gray-500 mt-1">
+                <div class="flex items-center gap-2 mb-1">
+                  <h3 class="font-black text-xl text-[#002B5C] truncate">{{ job.title }}</h3>
+                  <a v-if="job.link" :href="job.link" target="_blank" class="text-gray-300 hover:text-blue-600 transition-colors"><ExternalLink :size="16" /></a>
+                </div>
+                <div class="flex items-center gap-4 text-sm font-medium text-gray-500">
                   <span class="flex items-center gap-1.5"><Briefcase :size="14" /> {{ job.company }}</span>
                   <span class="flex items-center gap-1.5"><MapPin :size="14" /> {{ job.location || 'Dle webu' }}</span>
                 </div>
@@ -242,6 +302,29 @@ onUnmounted(() => clearInterval(logInterval))
             </div>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- Modal: Add Source -->
+    <div v-if="showSourceModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-6 animate-in fade-in">
+      <div class="bg-white rounded-3xl shadow-2xl max-w-md w-full p-8 border border-gray-100">
+        <div class="flex justify-between items-center mb-6">
+          <h3 class="font-black text-2xl text-[#002B5C]">Přidat zdroj</h3>
+          <button @click="showSourceModal = false" class="p-2 hover:bg-gray-100 rounded-full"><X :size="24" /></button>
+        </div>
+        <div class="space-y-4">
+          <div>
+            <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Název firmy</label>
+            <input v-model="newSource.name" type="text" placeholder="Např. Google" class="w-full border-2 border-gray-100 rounded-2xl p-4 focus:border-blue-200 outline-none">
+          </div>
+          <div>
+            <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">URL kariérních stránek</label>
+            <input v-model="newSource.url" type="url" placeholder="https://..." class="w-full border-2 border-gray-100 rounded-2xl p-4 focus:border-blue-200 outline-none">
+          </div>
+        </div>
+        <button @click="addSource" :disabled="loading || !newSource.name || !newSource.url" class="w-full mt-6 bg-[#002B5C] text-white font-black py-4 rounded-2xl shadow-lg hover:bg-blue-900 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+          ULOŽIT ZDROJ
+        </button>
       </div>
     </div>
 
