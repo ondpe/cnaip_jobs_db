@@ -23,6 +23,9 @@ importers:
       postcss:
         specifier: ^8.4.0
         version: 8.5.10
+      psycopg2-binary:
+        specifier: ^0.0.1
+        version: 0.0.1
       tailwindcss:
         specifier: ^3.4.0
         version: 3.4.19(yaml@2.8.3)
@@ -922,6 +925,9 @@ packages:
     resolution: {integrity: sha512-cJ+oHTW1VAEa8cJslgmUZrc+sjRKgAKl3Zyse6+PV38hZe/V6Z14TbCuXcan9F9ghlz4QrFr2c92TNF82UkYHA==}
     engines: {node: '>=10'}
 
+  psycopg2-binary@0.0.1:
+    resolution: {integrity: sha512-KBMkbVNy9TmSX3TZ5B8stHAuvbCJ855b7KIHV6gDDGsfk4UhsXJvbUyvCO8Q8Zh660QT2yVnd3l3tXOdDVFCrQ==}
+
   quansync@0.2.11:
     resolution: {integrity: sha512-AifT7QEbW9Nri4tAwR5M/uzpBuqfZf+zwaEM/QkzEjj7NBuFD2rBuy0K3dE+8wltbezDV7JMA0WfnCPYRSYbXA==}
 
@@ -1802,6 +1808,8 @@ snapshots:
       source-map-js: 1.2.1
 
   proxy-from-env@2.1.0: {}
+
+  psycopg2-binary@0.0.1: {}
 
   quansync@0.2.11: {}
 

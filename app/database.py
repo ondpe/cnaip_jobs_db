@@ -13,19 +13,23 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     db_pass = os.getenv("DB_PASSWORD")
     if db_pass:
-        # Používáme Transaction Pooler (port 6543) pro Supabase, což je vhodnější pro serverless
+        # Port 6543 je pro Transaction Pooler v Supabase, což je pro Vercel (serverless) nejlepší volba
         DATABASE_URL = f"postgresql://postgres:{db_pass}@db.aoslyffxsmktzsrjakrb.supabase.co:6543/postgres?sslmode=require"
 
 if not DATABASE_URL:
     logger.error("CHYBA: Není nastavena proměnná DATABASE_URL ani DB_PASSWORD.")
-    # Fallback na lokalni sqlite jen pro vyvoj, v produkci selze
     DATABASE_URL = "sqlite:///./jobs.db"
 
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-# Přidání pool_pre_ping pro automatické obnovení spojení po timeoutu (časté u Vercelu)
-engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+# Nastavení pool_pre_ping je kritické pro Vercel, aby se předešlo chybám s "odpojeným" socketem
+engine = create_engine(
+    DATABASE_URL, 
+    pool_pre_ping=True,
+    pool_recycle=300,
+    connect_args={"connect_timeout": 10}
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def sync_sequences():
@@ -37,31 +41,36 @@ def sync_sequences():
             conn.commit()
             logger.info("Databázové sekvence byly úspěšně synchronizovány.")
     except Exception as e:
-        logger.warning(f"Synchronizace sekvencí selhala: {e}")
+        logger.warning(f"Synchronizace sekvencí selhala (pravděpodobně tabulky ještě neexistují): {e}")
 
 def fix_missing_columns():
     try:
         with engine.connect() as conn:
-            # Sloupce pro sources (statistiky)
-            conn.execute(text("ALTER TABLE sources ADD COLUMN IF NOT EXISTS last_scrape_count INTEGER;"))
-            conn.execute(text("ALTER TABLE sources ADD COLUMN IF NOT EXISTS last_scrape_found INTEGER;"))
-            
-            # Sloupce pro jobs (odkaz a surový obsah)
-            conn.execute(text("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS link TEXT;"))
-            conn.execute(text("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS raw_content TEXT;"))
-            
+            # Postupné zajištění existence všech sloupců
+            tables_cols = {
+                "sources": ["last_scrape_count", "last_scrape_found"],
+                "jobs": ["link", "raw_content"]
+            }
+            for table, cols in tables_cols.items():
+                for col in cols:
+                    try:
+                        conn.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} INTEGER;"))
+                    except:
+                        # Pokud selže jako INTEGER, zkusíme TEXT pro link/raw_content
+                        if col in ["link", "raw_content"]:
+                            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} TEXT;"))
             conn.commit()
-            logger.info("Kontrola schématu (sloupce link, raw_content, statistiky) dokončena.")
+            logger.info("Kontrola schématu dokončena.")
     except Exception as e:
         logger.error(f"Chyba při kontrole schématu: {e}")
 
 def init_db():
     try:
-        # Metadata create_all vytvoří tabulky pokud neexistují
+        # Vytvoření tabulek
         Base.metadata.create_all(bind=engine)
-        # Fix missing columns zajistí, že existují i sloupce přidané později
+        # Oprava schématu pro existující databáze
         fix_missing_columns()
-        # Sync sequences zajistí správné generování ID
+        # Synchronizace sekvencí
         sync_sequences()
         logger.info("Databázová inicializace proběhla úspěšně.")
     except Exception as e:
