@@ -47,8 +47,6 @@ def authenticate_admin(credentials: HTTPBasicCredentials = Depends(security)):
 def startup_event():
     init_db()
 
-# --- VEŘEJNÉ API ---
-
 @app.get("/api/jobs")
 def get_jobs(db: Session = Depends(get_db)):
     return db.query(Job).order_by(Job.created_at.desc()).all()
@@ -56,8 +54,6 @@ def get_jobs(db: Session = Depends(get_db)):
 @app.get("/api/sources")
 def get_sources(db: Session = Depends(get_db)):
     return db.query(Source).all()
-
-# --- ADMIN API ---
 
 @app.get("/api/admin/settings/gemini-key", dependencies=[Depends(authenticate_admin)])
 def get_gemini_key(db: Session = Depends(get_db)):
@@ -84,9 +80,12 @@ async def run_scrape(source_id: int, db: Session = Depends(get_db)):
     for item in scraped:
         title = item['title']
         link = item.get('url')
-        # Kontrola unikátnosti podle titulku A odkazu
+        
+        # Hledáme, jestli už pozice u tohoto zdroje existuje
         existing = db.query(Job).filter(Job.title == title, Job.source_id == source.id).first()
+        
         if not existing:
+            # Nová pozice
             db.add(Job(
                 title=title, 
                 company=item.get('company'), 
@@ -96,6 +95,11 @@ async def run_scrape(source_id: int, db: Session = Depends(get_db)):
                 source_id=source.id
             ))
             new_count += 1
+        else:
+            # Existující pozice - pokud nemá link, doplníme ho
+            if not existing.link and link:
+                existing.link = link
+                logger.info(f"Doplněn chybějící odkaz pro: {title}")
     
     source.last_crawled_at = datetime.utcnow()
     source.last_scrape_count = new_count
@@ -129,7 +133,6 @@ def analyze_single_job(job_id: int, db: Session = Depends(get_db)):
     db.commit()
     return analysis
 
-# --- FRONTEND ---
 frontend_dist = os.path.join(os.getcwd(), "frontend", "dist")
 if os.path.exists(frontend_dist):
     app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist, "assets")), name="assets")
