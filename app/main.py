@@ -18,7 +18,7 @@ load_dotenv()
 from app.database import init_db, get_db, SessionLocal
 from app.models import Source, Job, Setting
 from app.scraper import scrape_source, fetch_job_detail
-from app.analyzator import analyze_job_with_ai, last_logs, add_debug_log
+from app.analyzator import analyze_job_with_ai, is_likely_job, last_logs, add_debug_log
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -47,7 +47,6 @@ class CredentialsUpdate(BaseModel):
     password: str
 
 def authenticate_admin(credentials: HTTPBasicCredentials = Depends(security), db: Session = Depends(get_db)):
-    # Nejprve zkusíme databázi
     db_user = db.query(Setting).filter(Setting.key == "admin_username").first()
     db_pass = db.query(Setting).filter(Setting.key == "admin_password").first()
     
@@ -254,18 +253,27 @@ async def analyze_single_job(job_id: int, db: Session = Depends(get_db)):
 async def run_scrape(source_id: int, db: Session = Depends(get_db)):
     source = db.query(Source).filter(Source.id == source_id).first()
     if not source: raise HTTPException(404, detail="Zdroj nenalezen")
+    
+    api_key, model_name = get_ai_config(db)
     scraped = await scrape_source(source.url, source.name)
+    
     new_count = 0
+    skipped_count = 0
     for item in scraped:
         existing = db.query(Job).filter(Job.title == item['title'], Job.source_id == source.id).first()
         if not existing:
-            db.add(Job(title=item['title'], company=source.name, location=item.get('location'), raw_content=item.get('raw_content'), link=item.get('url'), source_id=source.id))
-            new_count += 1
+            # Rychlá AI filtrace před uložením
+            if is_likely_job(item['title'], item.get('url', ''), api_key, model_name):
+                db.add(Job(title=item['title'], company=source.name, location=item.get('location'), raw_content=item.get('raw_content'), link=item.get('url'), source_id=source.id))
+                new_count += 1
+            else:
+                skipped_count += 1
+                
     source.last_crawled_at = datetime.utcnow()
     source.last_scrape_count = new_count
     source.last_scrape_found = len(scraped)
     db.commit()
-    return {"new": new_count, "total": len(scraped)}
+    return {"new": new_count, "skipped": skipped_count, "total": len(scraped)}
 
 frontend_dist = os.path.join(os.getcwd(), "frontend", "dist")
 if os.path.exists(frontend_dist):

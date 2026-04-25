@@ -16,10 +16,31 @@ def add_debug_log(msg):
         last_logs.pop(0)
     logger.info(f"[AI DEBUG] {msg}")
 
+def is_likely_job(title: str, url: str, api_key: str = None, model_name: str = "gemini-1.5-flash") -> bool:
+    """Rychlá kontrola, zda titulek a URL vypadají jako inzerát práce."""
+    if not api_key or not title:
+        return True # Pokud není klíč, raději pustíme dál
+    
+    try:
+        genai.configure(api_key=api_key.strip())
+        model = genai.GenerativeModel(model_name)
+        
+        # Velmi stručný prompt pro rychlost
+        prompt = f"Rozhodni, zda titulek '{title}' (URL: {url}) vypadá jako konkrétní IT pracovní inzerát. Vrať pouze slovo YES nebo NO."
+        
+        response = model.generate_content(prompt)
+        res_text = response.text.strip().upper()
+        
+        is_job = "YES" in res_text
+        if not is_job:
+            add_debug_log(f"Filtrace: Zahozen nerelevantní odkaz '{title}'")
+        return is_job
+    except Exception as e:
+        add_debug_log(f"Chyba při rychlé filtraci: {e}")
+        return True
+
 def analyze_job_with_ai(text: str, api_key: str = None, model_name: str = "gemini-1.5-flash"):
-    """
-    Analyzuje text inzerátu pomocí Gemini.
-    """
+    """Analyzuje text inzerátu pomocí Gemini."""
     if not text or len(text.strip()) < 25:
         return {"is_job": False, "summary": "Příliš krátký text."}
 
@@ -55,7 +76,6 @@ def analyze_job_with_ai(text: str, api_key: str = None, model_name: str = "gemin
         
         data = json.loads(cleaned)
         
-        # Vyčištění keywords od případných závorek, které tam AI občas propašuje
         raw_keywords = data.get("keywords", "")
         clean_keywords = raw_keywords.replace('[', '').replace(']', '').replace('{', '').replace('}', '').strip()
         
