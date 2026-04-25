@@ -99,7 +99,6 @@ def set_gemini_key(key: str, db: Session = Depends(get_db)):
     else:
         db.add(Setting(key="gemini_api_key", value=key))
     db.commit()
-    logger.info("AI klíč byl úspěšně uložen do databáze.")
     return {"status": "ok"}
 
 def get_active_api_key(db: Session):
@@ -111,20 +110,24 @@ def get_active_api_key(db: Session):
 @app.post("/api/admin/run-ai-analysis", dependencies=[Depends(authenticate_admin)])
 def run_analysis(db: Session = Depends(get_db)):
     api_key = get_active_api_key(db)
-    if not api_key:
-        logger.warning("AI Analýza spuštěna bez API klíče. Bude použit fallback.")
-    
     unprocessed = db.query(Job).filter((Job.summary == "") | (Job.summary == None)).all()
-    logger.info(f"Spouštím hromadnou analýzu pro {len(unprocessed)} pozic.")
+    deleted_count = 0
+    analyzed_count = 0
     
     for job in unprocessed:
         analysis = analyze_job_with_ai(job.raw_content or job.title, api_key)
-        job.keywords = analysis["keywords"]
-        job.summary = f"{analysis['summary']} (Seniorita: {analysis['seniority']})"
-        job.last_analyzed_at = datetime.utcnow()
+        
+        if not analysis.get("is_job", True):
+            db.delete(job)
+            deleted_count += 1
+        else:
+            job.keywords = analysis["keywords"]
+            job.summary = f"{analysis['summary']} (Seniorita: {analysis['seniority']})"
+            job.last_analyzed_at = datetime.utcnow()
+            analyzed_count += 1
     
     db.commit()
-    return {"count": len(unprocessed)}
+    return {"count": analyzed_count, "deleted": deleted_count}
 
 @app.post("/api/admin/analyze-job/{job_id}", dependencies=[Depends(authenticate_admin)])
 def analyze_single_job(job_id: int, db: Session = Depends(get_db)):
@@ -132,13 +135,16 @@ def analyze_single_job(job_id: int, db: Session = Depends(get_db)):
     if not job: raise HTTPException(404, detail="Pozice nenalezena")
     
     api_key = get_active_api_key(db)
-    logger.info(f"Analyzuji pozici {job.id} s klíčem: {'Ano' if api_key else 'Ne'}")
-    
     analysis = analyze_job_with_ai(job.raw_content or job.title, api_key)
+    
+    if not analysis.get("is_job", True):
+        db.delete(job)
+        db.commit()
+        return {"status": "deleted", "reason": "Not a job posting"}
+        
     job.keywords = analysis["keywords"]
     job.summary = f"{analysis['summary']} (Seniorita: {analysis['seniority']})"
     job.last_analyzed_at = datetime.utcnow()
-    
     db.commit()
     return analysis
 
@@ -152,17 +158,13 @@ async def run_scrape(source_id: int, db: Session = Depends(get_db)):
     for item in scraped:
         title = item['title']
         link = item.get('url')
-        
         existing = db.query(Job).filter(Job.title == title, Job.source_id == source.id).first()
         
         if not existing:
             db.add(Job(
-                title=title, 
-                company=source.name, 
-                location=item.get('location'), 
-                raw_content=item.get('raw_content'), 
-                link=link,
-                source_id=source.id
+                title=title, company=source.name, 
+                location=item.get('location'), raw_content=item.get('raw_content'), 
+                link=link, source_id=source.id
             ))
             new_count += 1
         else:
