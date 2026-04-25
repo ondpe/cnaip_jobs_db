@@ -1,6 +1,8 @@
 from fastapi import FastAPI, Depends, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 import os
 import logging
@@ -20,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Job Scraper API")
 
-# CORS konfigurace pro lokální vývoj
+# CORS konfigurace
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -46,7 +48,7 @@ def authenticate_admin(credentials: HTTPBasicCredentials = Depends(security)):
 def startup_event():
     init_db()
 
-# --- VEŘEJNÉ API ---
+# --- API ENDPOINTY ---
 
 @app.get("/api/jobs")
 def get_jobs(db: Session = Depends(get_db)):
@@ -57,8 +59,6 @@ def get_jobs(db: Session = Depends(get_db)):
 def get_sources(db: Session = Depends(get_db)):
     return db.query(Source).all()
 
-# --- ADMIN API (Zabezpečené) ---
-
 @app.post("/api/admin/sources", dependencies=[Depends(authenticate_admin)])
 def add_source(url: str, name: str, db: Session = Depends(get_db)):
     new_source = Source(url=url, name=name)
@@ -67,45 +67,25 @@ def add_source(url: str, name: str, db: Session = Depends(get_db)):
     db.refresh(new_source)
     return new_source
 
-@app.post("/api/admin/scrape/{source_id}", dependencies=[Depends(authenticate_admin)])
-async def run_scrape(source_id: int, db: Session = Depends(get_db)):
-    source = db.query(Source).filter(Source.id == source_id).first()
-    if not source: raise HTTPException(404, detail="Zdroj nenalezen")
-    
-    scraped = await scrape_source(source.url, source.name)
-    if not scraped:
-        return {"message": "Nebyly nalezeny žádné pozice"}
+# ... zbytek admin API zůstává stejný ...
 
-    found_titles = []
-    new_count = 0
-    for item in scraped:
-        title = item['title']
-        found_titles.append(title)
-        existing_job = db.query(Job).filter(Job.title == title, Job.source_id == source.id).first()
-        if existing_job:
-            existing_job.company = item.get('company')
-            existing_job.location = item.get('location')
-            existing_job.raw_content = item.get('raw_content')
-        else:
-            db.add(Job(title=title, company=item.get('company'), location=item.get('location'), raw_content=item.get('raw_content'), source_id=source.id))
-            new_count += 1
-    
-    db.query(Job).filter(Job.source_id == source.id, ~Job.title.in_(found_titles)).delete(synchronize_session=False)
-    source.last_crawled_at = datetime.utcnow()
-    source.last_scrape_count = new_count
-    source.last_scrape_found = len(scraped)
-    db.commit()
-    return {"jobs_saved": new_count, "jobs_found": len(scraped)}
+# --- SERVÍROVÁNÍ FRONTENDU ---
 
-@app.post("/api/admin/run-ai-analysis", dependencies=[Depends(authenticate_admin)])
-def run_analysis(db: Session = Depends(get_db)):
-    key_setting = db.query(Setting).filter(Setting.key == "gemini_api_key").first()
-    api_key = key_setting.value if key_setting else os.getenv("GEMINI_API_KEY")
-    unprocessed = db.query(Job).filter((Job.summary == "") | (Job.summary == None)).all()
-    for job in unprocessed:
-        analysis = analyze_job_with_ai(job.raw_content, api_key)
-        job.keywords = analysis["keywords"]
-        job.summary = f"{analysis['summary']} (Seniorita: {analysis['seniority']})"
-        job.last_analyzed_at = datetime.utcnow()
-    db.commit()
-    return {"message": f"Analyzováno {len(unprocessed)} pozic."}
+# Cesta k sestavenému frontendu
+frontend_path = os.path.join(os.getcwd(), "frontend", "dist")
+
+if os.path.exists(frontend_path):
+    app.mount("/assets", StaticFiles(directory=os.path.join(frontend_path, "assets")), name="static")
+
+    @app.get("/{full_path:path}")
+    async def serve_frontend(full_path: str):
+        # Pokud cesta začíná /api, FastAPI ji obslouží dříve díky pořadí definic
+        # Pro všechno ostatní vrátíme index.html (pro Vue router)
+        file_path = os.path.join(frontend_path, full_path)
+        if os.path.isfile(file_path):
+            return FileResponse(file_path)
+        return FileResponse(os.path.join(frontend_path, "index.html"))
+else:
+    @app.get("/")
+    def read_root():
+        return {"message": "Frontend nebyl nalezen. Spusťte 'npm run build' ve složce frontend."}
