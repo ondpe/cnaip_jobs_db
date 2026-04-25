@@ -87,17 +87,60 @@ def update_job(job_id: int, job_update: JobUpdate, db: Session = Depends(get_db)
 @app.get("/api/admin/settings/gemini-key", dependencies=[Depends(authenticate_admin)])
 def get_gemini_key(db: Session = Depends(get_db)):
     setting = db.query(Setting).filter(Setting.key == "gemini_api_key").first()
-    return {"has_key": bool(setting and setting.value) or bool(os.getenv("GEMINI_API_KEY"))}
+    env_key = os.getenv("GEMINI_API_KEY")
+    return {"has_key": bool((setting and setting.value) or env_key)}
 
 @app.post("/api/admin/settings/gemini-key", dependencies=[Depends(authenticate_admin)])
 def set_gemini_key(key: str, db: Session = Depends(get_db)):
+    logger.info(f"Pokus o uložení AI klíče (délka: {len(key)})")
     setting = db.query(Setting).filter(Setting.key == "gemini_api_key").first()
     if setting:
         setting.value = key
     else:
         db.add(Setting(key="gemini_api_key", value=key))
     db.commit()
+    logger.info("AI klíč byl úspěšně uložen do databáze.")
     return {"status": "ok"}
+
+def get_active_api_key(db: Session):
+    setting = db.query(Setting).filter(Setting.key == "gemini_api_key").first()
+    if setting and setting.value:
+        return setting.value
+    return os.getenv("GEMINI_API_KEY")
+
+@app.post("/api/admin/run-ai-analysis", dependencies=[Depends(authenticate_admin)])
+def run_analysis(db: Session = Depends(get_db)):
+    api_key = get_active_api_key(db)
+    if not api_key:
+        logger.warning("AI Analýza spuštěna bez API klíče. Bude použit fallback.")
+    
+    unprocessed = db.query(Job).filter((Job.summary == "") | (Job.summary == None)).all()
+    logger.info(f"Spouštím hromadnou analýzu pro {len(unprocessed)} pozic.")
+    
+    for job in unprocessed:
+        analysis = analyze_job_with_ai(job.raw_content or job.title, api_key)
+        job.keywords = analysis["keywords"]
+        job.summary = f"{analysis['summary']} (Seniorita: {analysis['seniority']})"
+        job.last_analyzed_at = datetime.utcnow()
+    
+    db.commit()
+    return {"count": len(unprocessed)}
+
+@app.post("/api/admin/analyze-job/{job_id}", dependencies=[Depends(authenticate_admin)])
+def analyze_single_job(job_id: int, db: Session = Depends(get_db)):
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job: raise HTTPException(404, detail="Pozice nenalezena")
+    
+    api_key = get_active_api_key(db)
+    logger.info(f"Analyzuji pozici {job.id} s klíčem: {'Ano' if api_key else 'Ne'}")
+    
+    analysis = analyze_job_with_ai(job.raw_content or job.title, api_key)
+    job.keywords = analysis["keywords"]
+    job.summary = f"{analysis['summary']} (Seniorita: {analysis['seniority']})"
+    job.last_analyzed_at = datetime.utcnow()
+    
+    db.commit()
+    return analysis
 
 @app.post("/api/admin/scrape/{source_id}", dependencies=[Depends(authenticate_admin)])
 async def run_scrape(source_id: int, db: Session = Depends(get_db)):
@@ -132,32 +175,6 @@ async def run_scrape(source_id: int, db: Session = Depends(get_db)):
     source.last_scrape_found = len(scraped)
     db.commit()
     return {"new": new_count, "total": len(scraped)}
-
-@app.post("/api/admin/run-ai-analysis", dependencies=[Depends(authenticate_admin)])
-def run_analysis(db: Session = Depends(get_db)):
-    key_setting = db.query(Setting).filter(Setting.key == "gemini_api_key").first()
-    api_key = key_setting.value if key_setting else os.getenv("GEMINI_API_KEY")
-    unprocessed = db.query(Job).filter((Job.summary == "") | (Job.summary == None)).all()
-    for job in unprocessed:
-        analysis = analyze_job_with_ai(job.raw_content, api_key)
-        job.keywords = analysis["keywords"]
-        job.summary = f"{analysis['summary']} (Seniorita: {analysis['seniority']})"
-        job.last_analyzed_at = datetime.utcnow()
-    db.commit()
-    return {"count": len(unprocessed)}
-
-@app.post("/api/admin/analyze-job/{job_id}", dependencies=[Depends(authenticate_admin)])
-def analyze_single_job(job_id: int, db: Session = Depends(get_db)):
-    job = db.query(Job).filter(Job.id == job_id).first()
-    if not job: raise HTTPException(404, detail="Pozice nenalezena")
-    key_setting = db.query(Setting).filter(Setting.key == "gemini_api_key").first()
-    api_key = key_setting.value if key_setting else os.getenv("GEMINI_API_KEY")
-    analysis = analyze_job_with_ai(job.raw_content, api_key)
-    job.keywords = analysis["keywords"]
-    job.summary = f"{analysis['summary']} (Seniorita: {analysis['seniority']})"
-    job.last_analyzed_at = datetime.utcnow()
-    db.commit()
-    return analysis
 
 frontend_dist = os.path.join(os.getcwd(), "frontend", "dist")
 if os.path.exists(frontend_dist):
