@@ -113,13 +113,13 @@ const fetchStatus = async () => {
 const startStatusPolling = () => {
   if (statusInterval) clearInterval(statusInterval)
   fetchStatus()
-  statusInterval = setInterval(fetchStatus, 5000) // Kontrola stavu každých 5s
+  statusInterval = setInterval(fetchStatus, 5000) 
 }
 
 const startLogPolling = () => {
   if (logInterval) return 
   fetchLogs()
-  logInterval = setInterval(fetchLogs, 5000) // Logy každých 5s
+  logInterval = setInterval(fetchLogs, 5000) 
 }
 
 const stopLogPolling = () => {
@@ -129,11 +129,10 @@ const stopLogPolling = () => {
   }
 }
 
-// Watchers pro chytré spouštění/zastavování logů
 watch(currentActivity, (newVal) => {
   if (newVal) {
     startLogPolling()
-    if (!showLogs.value) showLogs.value = true // Automaticky ukážeme logy při aktivitě
+    if (!showLogs.value) showLogs.value = true 
   } else if (!showLogs.value) {
     stopLogPolling()
   }
@@ -328,7 +327,7 @@ const formatDate = (d: string | null) => d ? new Date(d).toLocaleString('cs-CZ',
 
 onMounted(() => {
   fetchData()
-  startStatusPolling() // Spustíme trvalou kontrolu stavu (5s)
+  startStatusPolling() 
 })
 
 onUnmounted(() => { 
@@ -399,7 +398,7 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- AI & Creds Forms (zůstávají stejné) -->
+      <!-- AI & Creds Forms section remains same -->
       <div v-if="isEditingAi" class="px-5 pb-5 pt-0 animate-in slide-in-from-top-2">
         <div class="p-6 bg-blue-50/50 rounded-2xl border border-blue-100 space-y-4">
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -593,7 +592,6 @@ onUnmounted(() => {
                     <div class="flex-1 min-w-0 pr-4">
                       <div class="flex items-center gap-2 mb-1">
                         <h3 class="font-black text-xl text-[#002B5C] truncate">{{ job.title }}</h3>
-                        <a v-if="job.link" :href="job.link" target="_blank" class="text-gray-300 hover:text-blue-600 transition-colors"><ExternalLink :size="16" /></a>
                       </div>
                       <div class="flex items-center gap-4 text-sm font-medium text-gray-500">
                         <span class="flex items-center gap-1.5"><Briefcase :size="14" /> {{ job.company }}</span>
@@ -626,8 +624,18 @@ onUnmounted(() => {
                   <div v-if="job.keywords" class="flex flex-wrap gap-1.5 mb-4">
                     <span v-for="kw in job.keywords.split(',')" :key="kw" class="px-2 py-0.5 rounded bg-gray-50 text-gray-400 text-[9px] font-bold uppercase border border-gray-100">{{ kw.trim() }}</span>
                   </div>
+                  
                   <div :class="['rounded-xl p-4 text-sm border-l-4 flex flex-col gap-3', job.summary?.includes('⚠️') ? 'bg-amber-50 text-amber-700 border-amber-200' : job.summary?.includes('Chyba AI') ? 'bg-red-50 text-red-700 border-red-200' : job.summary ? 'bg-blue-50/50 text-[#002B5C] border-blue-200' : 'bg-gray-50 text-gray-400 border-gray-200 italic']">
                     <span>{{ job.summary || 'Tato pozice zatím nebyla zpracována AI modelem.' }}</span>
+                    
+                    <!-- Zobrazení explicitního linku pod popisem -->
+                    <div v-if="job.link" class="pt-2 mt-2 border-t border-gray-200/50">
+                      <span class="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Odkaz na inzerát</span>
+                      <a :href="job.link" target="_blank" class="text-blue-600 hover:underline break-all font-medium flex items-center gap-2">
+                         {{ job.link }} <ExternalLink :size="12" class="shrink-0" />
+                      </a>
+                    </div>
+
                     <div v-if="job.summary?.includes('⚠️')" class="pt-2">
                        <button @click="startEditing(job)" class="bg-amber-600 text-white px-4 py-1.5 rounded-lg text-[10px] font-black uppercase hover:bg-amber-700 transition-all flex items-center gap-2 w-fit">
                          <Edit3 :size="12" /> Upravit ručně
@@ -657,6 +665,10 @@ onUnmounted(() => {
                       <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Klíčová slova (čárka)</label>
                       <input v-model="jobForm.keywords" type="text" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-100">
                     </div>
+                  </div>
+                  <div>
+                    <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Odkaz na inzerát</label>
+                    <input v-model="jobForm.link" type="text" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-100">
                   </div>
                   <div>
                     <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Shrnutí / Popis</label>
