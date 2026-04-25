@@ -1,11 +1,8 @@
 from fastapi import FastAPI, Depends, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
-from sqlalchemy import not_
 from pydantic import BaseModel
 import os
 import logging
@@ -18,7 +15,7 @@ import google.generativeai as genai
 
 load_dotenv()
 
-from app.database import init_db, get_db, SessionLocal
+from app.database import init_db, get_db
 from app.models import Source, Job, Setting
 from app.scraper import scrape_source, fetch_job_detail
 from app.analyzator import analyze_job_with_ai, is_likely_job, last_logs, add_debug_log
@@ -40,10 +37,6 @@ app.add_middleware(
 )
 
 security = HTTPBasic()
-
-# Pomocná funkce pro získání absolutní cesty k frontend/dist
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-frontend_dist = os.path.join(BASE_DIR, "frontend", "dist")
 
 class SourceCreate(BaseModel):
     name: str
@@ -361,6 +354,7 @@ def export_sources(db: Session = Depends(get_db)):
     df = pd.DataFrame(data)
     stream = io.StringIO()
     df.to_csv(stream, index=False)
+    from fastapi.responses import StreamingResponse
     response = StreamingResponse(iter([stream.getvalue()]), media_type="text/csv")
     response.headers["Content-Disposition"] = "attachment; filename=sources_export.csv"
     return response
@@ -383,27 +377,7 @@ def export_jobs(db: Session = Depends(get_db)):
     df = pd.DataFrame(data)
     stream = io.StringIO()
     df.to_csv(stream, index=False)
+    from fastapi.responses import StreamingResponse
     response = StreamingResponse(iter([stream.getvalue()]), media_type="text/csv")
     response.headers["Content-Disposition"] = "attachment; filename=jobs_export.csv"
     return response
-
-# Montování statických souborů pro lokální vývoj
-if os.path.exists(os.path.join(frontend_dist, "assets")):
-    app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist, "assets")), name="assets")
-
-@app.get("/{full_path:path}")
-async def serve_frontend(full_path: str):
-    # API routy ignorujeme
-    if full_path.startswith("api"): raise HTTPException(404)
-    
-    # Zkusíme najít soubor přímo v dist (např. favicon.ico nebo assets/...)
-    file_path = os.path.join(frontend_dist, full_path)
-    if os.path.isfile(file_path):
-        return FileResponse(file_path)
-    
-    # Pokud soubor neexistuje a není to cesta k assetu, vrátíme index.html (pro SPA)
-    index_path = os.path.join(frontend_dist, "index.html")
-    if os.path.isfile(index_path):
-        return FileResponse(index_path)
-        
-    return {"error": "Frontend not built or not found"}
