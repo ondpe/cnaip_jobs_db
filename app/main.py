@@ -67,25 +67,35 @@ def add_source(url: str, name: str, db: Session = Depends(get_db)):
     db.refresh(new_source)
     return new_source
 
-# ... zbytek admin API zůstává stejný ...
-
 # --- SERVÍROVÁNÍ FRONTENDU ---
 
-# Cesta k sestavenému frontendu
-frontend_path = os.path.join(os.getcwd(), "frontend", "dist")
+frontend_dist = os.path.join(os.getcwd(), "frontend", "dist")
+assets_path = os.path.join(frontend_dist, "assets")
 
-if os.path.exists(frontend_path):
-    app.mount("/assets", StaticFiles(directory=os.path.join(frontend_path, "assets")), name="static")
+# Pokud existuje složka s asety, namontujeme ji
+if os.path.exists(assets_path):
+    app.mount("/assets", StaticFiles(directory=assets_path), name="assets")
 
-    @app.get("/{full_path:path}")
-    async def serve_frontend(full_path: str):
-        # Pokud cesta začíná /api, FastAPI ji obslouží dříve díky pořadí definic
-        # Pro všechno ostatní vrátíme index.html (pro Vue router)
-        file_path = os.path.join(frontend_path, full_path)
-        if os.path.isfile(file_path):
-            return FileResponse(file_path)
-        return FileResponse(os.path.join(frontend_path, "index.html"))
-else:
-    @app.get("/")
-    def read_root():
-        return {"message": "Frontend nebyl nalezen. Spusťte 'npm run build' ve složce frontend."}
+@app.get("/")
+async def serve_index():
+    index_path = os.path.join(frontend_dist, "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
+    return {"message": "Frontend nebyl nalezen. Klikněte na 'Rebuild' pro sestavení aplikace."}
+
+@app.get("/{full_path:path}")
+async def catch_all(full_path: str):
+    # Ignorujeme API požadavky, ty už jsou definovány výše
+    if full_path.startswith("api"):
+        raise HTTPException(status_code=404)
+        
+    file_path = os.path.join(frontend_dist, full_path)
+    if os.path.exists(file_path) and os.path.isfile(file_path):
+        return FileResponse(file_path)
+    
+    # Fallback pro Vue router (SPA)
+    index_path = os.path.join(frontend_dist, "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
+        
+    raise HTTPException(status_code=404)
