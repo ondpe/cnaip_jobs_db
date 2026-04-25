@@ -10,6 +10,7 @@
         .card { border: none; box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075); transition: all 0.3s; }
         .card:hover { box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15); }
         .sticky-top { top: 1rem; }
+        .source-checkbox { width: 1.2rem; height: 1.2rem; cursor: pointer; }
     </style>
 </head>
 <body class="bg-light">
@@ -28,7 +29,7 @@
                 <button class="btn btn-outline-light btn-sm me-2" data-bs-toggle="modal" data-bs-target="#settingsModal">
                     <i class="bi bi-key"></i> Nastavit AI klíč
                 </button>
-                <button onclick="runAiAnalysis()" class="btn btn-primary btn-sm">
+                <button id="aiAnalysisBtn" onclick="runAiAnalysis()" class="btn btn-primary btn-sm">
                     <i class="bi bi-cpu"></i> Spustit AI analýzu
                 </button>
             </div>
@@ -39,22 +40,36 @@
         <div class="row">
             <div class="col-md-4">
                 <div class="card mb-4 sticky-top">
-                    <div class="card-header bg-white d-flex justify-content-between align-items-center">
-                        <h5 class="mb-0">Zdroje ({{ sources|length }})</h5>
-                        <div class="d-flex align-items-center">
-                            <a href="/export/sources" class="btn btn-outline-secondary btn-sm me-1" title="Export CSV">
-                                <i class="bi bi-file-earmark-spreadsheet"></i> Export CSV
-                            </a>
-                            <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addSourceModal">
-                                <i class="bi bi-plus-lg"></i>
+                    <div class="card-header bg-white">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <h5 class="mb-0">Zdroje ({{ sources|length }})</h5>
+                            <div class="d-flex align-items-center">
+                                <a href="/export/sources" class="btn btn-outline-secondary btn-sm me-1" title="Export CSV">
+                                    <i class="bi bi-file-earmark-spreadsheet"></i>
+                                </a>
+                                <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addSourceModal">
+                                    <i class="bi bi-plus-lg"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="selectAllSources" onclick="toggleAllSources(this)">
+                                <label class="form-check-label small text-muted" for="selectAllSources">Vybrat vše</label>
+                            </div>
+                            <button id="scrapeSelectedBtn" onclick="scrapeSelectedSources()" class="btn btn-outline-primary btn-sm d-none">
+                                <i class="bi bi-play-fill"></i> Aktualizovat vybrané
                             </button>
                         </div>
                     </div>
-                    <div class="list-group list-group-flush">
+                    <div class="list-group list-group-flush" id="sourcesList">
                         {% for source in sources %}
-                        <div class="list-group-item d-flex justify-content-between align-items-center">
-                            <div class="text-truncate" style="max-width: 65%;">
-                                <strong>{{ source.name }}</strong><br>
+                        <div class="list-group-item d-flex align-items-center py-3">
+                            <div class="me-3">
+                                <input type="checkbox" class="form-check-input source-checkbox" data-id="{{ source.id }}" onclick="updateBulkButton()">
+                            </div>
+                            <div class="text-truncate flex-grow-1" style="max-width: 60%;">
+                                <strong class="d-block text-truncate">{{ source.name }}</strong>
                                 <small class="text-muted d-block text-truncate">{{ source.url }}</small>
                                 <small class="text-info d-block" style="font-size: 0.75rem;">
                                     {% if source.last_crawled_at %}
@@ -67,7 +82,7 @@
                                     {% endif %}
                                 </small>
                             </div>
-                            <button onclick="scrapeSource({{ source.id }})" class="btn btn-outline-primary btn-sm" title="Aktualizovat">
+                            <button onclick="scrapeSource({{ source.id }}, this)" class="btn btn-outline-primary btn-sm ms-2" title="Aktualizovat">
                                 <i class="bi bi-arrow-clockwise"></i>
                             </button>
                         </div>
@@ -170,6 +185,23 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+        function toggleAllSources(master) {
+            const checkboxes = document.querySelectorAll('.source-checkbox');
+            checkboxes.forEach(cb => cb.checked = master.checked);
+            updateBulkButton();
+        }
+
+        function updateBulkButton() {
+            const checkedCount = document.querySelectorAll('.source-checkbox:checked').length;
+            const bulkBtn = document.getElementById('scrapeSelectedBtn');
+            if (checkedCount > 0) {
+                bulkBtn.classList.remove('d-none');
+                bulkBtn.innerHTML = `<i class="bi bi-play-fill"></i> Aktualizovat vybrané (${checkedCount})`;
+            } else {
+                bulkBtn.classList.add('d-none');
+            }
+        }
+
         async function saveGeminiKey() {
             const key = document.getElementById('geminiKeyInput').value;
             if(!key) return alert('Zadejte klíč.');
@@ -184,30 +216,57 @@
             if(res.ok) location.reload();
         }
 
-        async function scrapeSource(id) {
-            const btn = event.currentTarget;
+        async function scrapeSource(id, btn) {
             btn.disabled = true;
             const originalIcon = btn.innerHTML;
             btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>';
             
-            const res = await fetch(`/scrape/${id}`, { method: 'POST' });
-            if(res.ok) {
-                location.reload();
-            } else {
-                alert('Chyba při scrapování.');
+            try {
+                const res = await fetch(`/scrape/${id}`, { method: 'POST' });
+                if(res.ok) {
+                    return true;
+                } else {
+                    console.error('Chyba při scrapování zdroje', id);
+                    return false;
+                }
+            } catch (e) {
+                console.error(e);
+                return false;
+            } finally {
                 btn.disabled = false;
                 btn.innerHTML = originalIcon;
             }
         }
 
+        async function scrapeSelectedSources() {
+            const checkedBoxes = document.querySelectorAll('.source-checkbox:checked');
+            const bulkBtn = document.getElementById('scrapeSelectedBtn');
+            const originalContent = bulkBtn.innerHTML;
+            
+            bulkBtn.disabled = true;
+            bulkBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Pracuji...';
+
+            for (const cb of checkedBoxes) {
+                const id = cb.dataset.id;
+                // Najdeme odpovídající tlačítko pro vizuální feedback
+                const rowBtn = cb.closest('.list-group-item').querySelector('button[title="Aktualizovat"]');
+                await scrapeSource(id, rowBtn);
+            }
+
+            location.reload();
+        }
+
         async function runAiAnalysis() {
-            const btn = event.currentTarget;
+            const btn = document.getElementById('aiAnalysisBtn');
             btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Analyzuji...';
+            
             const res = await fetch('/jobs/run-ai-analysis', { method: 'POST' });
             if(res.ok) {
                 location.reload();
             } else {
                 btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-cpu"></i> Spustit AI analýzu';
             }
         }
 
