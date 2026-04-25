@@ -13,6 +13,23 @@ class JobScraper:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         pass
 
+    async def fetch_full_content(self, url: str) -> str:
+        """Stáhne obsah stránky převedený na Markdown pomocí r.jina.ai."""
+        try:
+            jina_url = f"https://r.jina.ai/{url}"
+            headers = {
+                'X-Return-Format': 'markdown',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
+            }
+            logger.info(f"Stahuji detail přes Jina: {url}")
+            response = requests.get(jina_url, headers=headers, timeout=20)
+            if response.status_code == 200:
+                return response.text
+            return ""
+        except Exception as e:
+            logger.error(f"Chyba při stahování přes Jina: {e}")
+            return ""
+
     async def scrape_jobs(self, url: str, source_name: str = "") -> List[Dict[str, str]]:
         logger.info(f"Startuju scraper pro: {url}")
         try:
@@ -44,22 +61,16 @@ class JobScraper:
                             "raw_content": title_text
                         })
             
-            # STRATEGIE 2: Univerzální (Hledáme odkazy v nadpisech nebo blocku s odkazem)
+            # STRATEGIE 2: Univerzální
             else:
-                # Hledáme všechny elementy, které by mohly být nadpisem nebo odkazem na pozici
                 potential_elements = soup.find_all(['h1', 'h2', 'h3', 'a'])
-                
                 for el in potential_elements:
                     text = el.get_text(strip=True)
-                    # Ignorujeme příliš krátké texty (typicky menu)
-                    if len(text) < 10:
-                        continue
+                    if len(text) < 10: continue
                     
-                    # Pokud je to odkaz, zkusíme ho jako přímý link
                     if el.name == 'a' and 'href' in el.attrs:
                         job_url = urljoin(url, el['href'])
-                        # Pokud link vede na jinou doménu nebo hlouběji do webu, může to být inzerát
-                        if job_url != url and not any(x in job_url.lower() for x in ['login', 'register', 'privacy', 'cookie']):
+                        if job_url != url and not any(x in job_url.lower() for x in ['login', 'register', 'privacy', 'cookie', 'javascript']):
                             jobs.append({
                                 "title": text[:300],
                                 "company": source_name or "Neznámá firma",
@@ -67,8 +78,6 @@ class JobScraper:
                                 "url": job_url,
                                 "raw_content": text
                             })
-                    
-                    # Pokud je to nadpis, zkusíme najít odkaz uvnitř nebo v rodiči
                     elif el.name in ['h1', 'h2', 'h3']:
                         link_tag = el.find('a') or el.find_parent('a')
                         if link_tag and 'href' in link_tag.attrs:
@@ -81,7 +90,6 @@ class JobScraper:
                                 "raw_content": text
                             })
 
-            # Odstraníme duplicity v rámci jednoho scrapingu podle titulku
             unique_jobs = {}
             for j in jobs:
                 if j['title'] not in unique_jobs:
@@ -96,3 +104,7 @@ class JobScraper:
 async def scrape_source(url: str, source_name: str = "") -> List[Dict[str, str]]:
     async with JobScraper() as scraper:
         return await scraper.scrape_jobs(url, source_name)
+
+async def fetch_job_detail(url: str) -> str:
+    async with JobScraper() as scraper:
+        return await scraper.fetch_full_content(url)
