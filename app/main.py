@@ -1,10 +1,12 @@
 from fastapi import FastAPI, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 import os
 import logging
+import csv
+import io
 from datetime import datetime
 
 # Importy
@@ -48,6 +50,40 @@ async def index(request: Request, db: Session = Depends(get_db)):
     except Exception as e:
         return HTMLResponse(f"<h1>Chyba</h1><p>{str(e)}</p>")
 
+@app.get("/export/jobs")
+def export_jobs(db: Session = Depends(get_db)):
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["ID", "Title", "Company", "Location", "Keywords", "Summary", "Created At"])
+    
+    jobs = db.query(Job).all()
+    for job in jobs:
+        writer.writerow([job.id, job.title, job.company, job.location, job.keywords, job.summary, job.created_at])
+    
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=jobs_{datetime.now().strftime('%Y%m%d')}.csv"}
+    )
+
+@app.get("/export/sources")
+def export_sources(db: Session = Depends(get_db)):
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["ID", "Name", "URL", "Is Active"])
+    
+    sources = db.query(Source).all()
+    for s in sources:
+        writer.writerow([s.id, s.name, s.url, s.is_active])
+    
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=sources_{datetime.now().strftime('%Y%m%d')}.csv"}
+    )
+
 @app.post("/api/settings/gemini-key")
 def update_gemini_key(key: str, db: Session = Depends(get_db)):
     setting = db.query(Setting).filter(Setting.key == "gemini_api_key").first()
@@ -81,7 +117,6 @@ async def run_scrape(source_id: int, db: Session = Depends(get_db)):
 
 @app.post("/jobs/run-ai-analysis")
 def run_analysis(db: Session = Depends(get_db)):
-    # Získání klíče z DB
     key_setting = db.query(Setting).filter(Setting.key == "gemini_api_key").first()
     api_key = key_setting.value if key_setting else os.getenv("GEMINI_API_KEY")
     
