@@ -17,7 +17,7 @@ load_dotenv()
 from app.database import init_db, get_db
 from app.models import Source, Job, Setting
 from app.scraper import scrape_source
-from app.analyzator import analyze_job_with_ai
+from app.analyzator import analyze_job_with_ai, last_logs, add_debug_log
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -65,6 +65,10 @@ def get_jobs(db: Session = Depends(get_db)):
 def get_sources(db: Session = Depends(get_db)):
     return db.query(Source).all()
 
+@app.get("/api/admin/debug/logs", dependencies=[Depends(authenticate_admin)])
+def get_debug_logs():
+    return {"logs": last_logs}
+
 @app.delete("/api/admin/jobs/{job_id}", dependencies=[Depends(authenticate_admin)])
 def delete_job(job_id: int, db: Session = Depends(get_db)):
     job = db.query(Job).filter(Job.id == job_id).first()
@@ -93,23 +97,19 @@ def get_gemini_key(db: Session = Depends(get_db)):
     if not key_val:
         return {"has_key": False, "masked_key": ""}
     
-    # Zamaskujeme klíč pro UI (necháme první 4 a poslední 4 znaky)
     masked = key_val[:4] + "...." + key_val[-4:] if len(key_val) > 8 else "****"
     return {"has_key": True, "masked_key": masked}
 
 @app.post("/api/admin/settings/gemini-key", dependencies=[Depends(authenticate_admin)])
 def set_gemini_key(key: str, db: Session = Depends(get_db)):
-    # Validace klíče pokusem o inicializaci Gemini
     try:
         genai.configure(api_key=key)
         model = genai.GenerativeModel('gemini-1.5-flash')
-        # Zkusíme úplně minimální generování pro ověření klíče
         model.generate_content("ping", generation_config={"max_output_tokens": 1})
     except Exception as e:
         logger.error(f"Neplatný AI klíč: {e}")
         raise HTTPException(status_code=400, detail=f"AI klíč se nepodařilo ověřit: {str(e)}")
 
-    logger.info(f"Ukládám ověřený AI klíč do DB.")
     setting = db.query(Setting).filter(Setting.key == "gemini_api_key").first()
     if setting:
         setting.value = key
@@ -127,11 +127,17 @@ def get_active_api_key(db: Session):
 @app.post("/api/admin/run-ai-analysis", dependencies=[Depends(authenticate_admin)])
 def run_analysis(db: Session = Depends(get_db)):
     api_key = get_active_api_key(db)
+    add_debug_log(f"Spouštím hromadnou analýzu. Klíč nalezen: {bool(api_key)}")
+    
+    # Hledáme pozice, které buď nemají summary, nebo mají fallback text
     unprocessed = db.query(Job).filter(
         (Job.summary == "") | 
         (Job.summary == None) | 
-        (Job.summary.like("%Čeká na AI%"))
+        (Job.summary.like("%Čeká na AI%")) |
+        (Job.summary.like("%Chyba AI%"))
     ).all()
+    
+    add_debug_log(f"Nalezeno {len(unprocessed)} pozic ke zpracování.")
     
     deleted_count = 0
     analyzed_count = 0
@@ -142,13 +148,14 @@ def run_analysis(db: Session = Depends(get_db)):
         if not analysis.get("is_job", True):
             db.delete(job)
             deleted_count += 1
-        elif api_key:
-            job.keywords = analysis["keywords"]
-            job.summary = f"{analysis['summary']} (Seniorita: {analysis['seniority']})"
+        else:
+            job.keywords = analysis.get("keywords", "")
+            job.summary = f"{analysis.get('summary', 'Bez shrnutí')} (Seniorita: {analysis.get('seniority', 'Nezjištěno')})"
             job.last_analyzed_at = datetime.utcnow()
             analyzed_count += 1
     
     db.commit()
+    add_debug_log(f"Hromadná analýza dokončena. Zpracováno: {analyzed_count}, Smazáno: {deleted_count}")
     return {"count": analyzed_count, "deleted": deleted_count}
 
 @app.post("/api/admin/analyze-job/{job_id}", dependencies=[Depends(authenticate_admin)])
@@ -157,6 +164,7 @@ def analyze_single_job(job_id: int, db: Session = Depends(get_db)):
     if not job: raise HTTPException(404, detail="Pozice nenalezena")
     
     api_key = get_active_api_key(db)
+    add_debug_log(f"Spouštím analýzu jedné pozice ID {job_id}")
     analysis = analyze_job_with_ai(job.raw_content or job.title, api_key)
     
     if not analysis.get("is_job", True):
@@ -164,11 +172,10 @@ def analyze_single_job(job_id: int, db: Session = Depends(get_db)):
         db.commit()
         return {"status": "deleted", "reason": "Not a job posting"}
         
-    if api_key:
-        job.keywords = analysis["keywords"]
-        job.summary = f"{analysis['summary']} (Seniorita: {analysis['seniority']})"
-        job.last_analyzed_at = datetime.utcnow()
-        db.commit()
+    job.keywords = analysis.get("keywords", "")
+    job.summary = f"{analysis.get('summary', 'Bez shrnutí')} (Seniorita: {analysis.get('seniority', 'Nezjištěno')})"
+    job.last_analyzed_at = datetime.utcnow()
+    db.commit()
     return analysis
 
 @app.post("/api/admin/scrape/{source_id}", dependencies=[Depends(authenticate_admin)])
@@ -176,6 +183,7 @@ async def run_scrape(source_id: int, db: Session = Depends(get_db)):
     source = db.query(Source).filter(Source.id == source_id).first()
     if not source: raise HTTPException(404, detail="Zdroj nenalezen")
     
+    add_debug_log(f"Scrapuji zdroj: {source.name}")
     scraped = await scrape_source(source.url, source.name)
     new_count = 0
     for item in scraped:
@@ -199,6 +207,7 @@ async def run_scrape(source_id: int, db: Session = Depends(get_db)):
     source.last_scrape_count = new_count
     source.last_scrape_found = len(scraped)
     db.commit()
+    add_debug_log(f"Scraping hotov. Nalezeno {len(scraped)}, uloženo {new_count} nových.")
     return {"new": new_count, "total": len(scraped)}
 
 frontend_dist = os.path.join(os.getcwd(), "frontend", "dist")
