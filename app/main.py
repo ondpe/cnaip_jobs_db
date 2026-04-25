@@ -17,6 +17,9 @@ from app.analyzator import analyze_job_with_ai
 
 # Import migrační logiky
 try:
+    # Zajištění, že import funguje i když je main.py v podsložce app/
+    import sys
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from migrate_data import migrate as run_db_migration
 except ImportError:
     run_db_migration = None
@@ -61,13 +64,16 @@ async def index(request: Request, db: Session = Depends(get_db)):
 
 @app.post("/api/admin/migrate-db")
 async def trigger_migration():
+    logger.info("[admin] Požadavek na migraci databáze")
     if not run_db_migration:
+        logger.error("[admin] Migrační skript nebyl nalezen v sys.path")
         raise HTTPException(status_code=500, detail="Migrační skript nenalezen.")
     
     try:
         run_db_migration()
         return {"message": "Migrace byla úspěšně spuštěna a dokončena."}
     except Exception as e:
+        logger.error(f"[admin] Migrace selhala: {e}")
         raise HTTPException(status_code=500, detail=f"Migrace selhala: {str(e)}")
 
 @app.get("/export/jobs")
