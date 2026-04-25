@@ -4,7 +4,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import not_
+from sqlalchemy import not_, in_
 from pydantic import BaseModel
 import os
 import logging
@@ -38,6 +38,9 @@ security = HTTPBasic()
 class SourceCreate(BaseModel):
     name: str
     url: str
+
+class BulkAction(BaseModel):
+    ids: List[int]
 
 def authenticate_admin(credentials: HTTPBasicCredentials = Depends(security)):
     admin_user = os.getenv("ADMIN_USERNAME", "admin")
@@ -91,6 +94,12 @@ def delete_job(job_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"status": "deleted"}
 
+@app.post("/api/admin/jobs/bulk-delete", dependencies=[Depends(authenticate_admin)])
+def bulk_delete_jobs(action: BulkAction, db: Session = Depends(get_db)):
+    db.query(Job).filter(Job.id.in_(action.ids)).delete(synchronize_session=False)
+    db.commit()
+    return {"status": "deleted", "count": len(action.ids)}
+
 @app.get("/api/admin/settings/gemini-key", dependencies=[Depends(authenticate_admin)])
 def get_gemini_key(db: Session = Depends(get_db)):
     key_setting = db.query(Setting).filter(Setting.key == "gemini_api_key").first()
@@ -121,7 +130,6 @@ def set_gemini_key(key: str, model_name: Optional[str] = "gemini-1.5-flash", db:
         genai.configure(api_key=clean_key)
         model = genai.GenerativeModel(model_name)
         model.generate_content("ping", generation_config={"max_output_tokens": 1})
-        # Uložení klíče a modelu
         for k, v in {"gemini_api_key": clean_key, "gemini_model_name": model_name}.items():
             setting = db.query(Setting).filter(Setting.key == k).first()
             if setting: setting.value = v
@@ -148,7 +156,6 @@ async def run_analysis(db: Session = Depends(get_db)):
     analyzed_count = 0
     deleted_count = 0
     for job in unprocessed:
-        # Pokud nemáme bohatý obsah a máme link, stáhneme ho přes Jinu
         if (not job.raw_content or len(job.raw_content) < 500) and job.link:
             full_text = await fetch_job_detail(job.link)
             if full_text:
@@ -169,6 +176,35 @@ async def run_analysis(db: Session = Depends(get_db)):
     
     db.commit()
     return {"count": analyzed_count, "deleted": deleted_count}
+
+@app.post("/api/admin/jobs/bulk-analyze", dependencies=[Depends(authenticate_admin)])
+async def bulk_analyze_jobs(action: BulkAction, db: Session = Depends(get_db)):
+    api_key, model_name = get_ai_config(db)
+    jobs_to_analyze = db.query(Job).filter(Job.id.in_(action.ids)).all()
+    
+    count = 0
+    deleted = 0
+    for job in jobs_to_analyze:
+        if (not job.raw_content or len(job.raw_content) < 500) and job.link:
+            full_text = await fetch_job_detail(job.link)
+            if full_text:
+                job.raw_content = full_text
+                db.commit()
+
+        analysis = analyze_job_with_ai(job.raw_content or job.title, api_key, model_name)
+        if not analysis.get("is_job", True):
+            db.delete(job)
+            deleted += 1
+        else:
+            seniority = analysis.get("seniority", "Medior")
+            tech_keywords = analysis.get("keywords", "")
+            job.keywords = f"{seniority}, {tech_keywords}" if tech_keywords else seniority
+            job.summary = analysis.get('summary', 'Bez shrnutí')
+            job.last_analyzed_at = datetime.utcnow()
+            count += 1
+    
+    db.commit()
+    return {"count": count, "deleted": deleted}
 
 @app.post("/api/admin/analyze-job/{job_id}", dependencies=[Depends(authenticate_admin)])
 async def analyze_single_job(job_id: int, db: Session = Depends(get_db)):

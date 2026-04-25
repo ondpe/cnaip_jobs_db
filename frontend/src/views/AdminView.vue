@@ -23,6 +23,7 @@ interface Job {
 const sources = ref<Source[]>([])
 const jobs = ref<Job[]>([])
 const selectedSourceIds = ref<number[]>([])
+const selectedJobIds = ref<number[]>([])
 const searchQuery = ref('')
 const loading = ref(false)
 const hasAiKey = ref(false)
@@ -37,6 +38,7 @@ const keyError = ref('')
 const scrapingIds = ref<Set<number>>(new Set())
 const analyzingIds = ref<Set<number>>(new Set())
 const deletingSourceId = ref<number | null>(null)
+const deletingJobId = ref<number | null>(null)
 const showLogs = ref(false)
 const debugLogs = ref<string[]>([])
 let logInterval: any = null
@@ -126,6 +128,41 @@ const confirmDeleteSource = async (id: number) => {
   } finally { loading.value = false }
 }
 
+const confirmDeleteJob = async (id: number) => {
+  const adminAuth = getAdminAuth()
+  if (!adminAuth) return
+  loading.value = true
+  try {
+    await axios.delete(`/api/admin/jobs/${id}`, adminAuth)
+    deletingJobId.value = null
+    await fetchData()
+  } finally { loading.value = false }
+}
+
+const bulkDeleteJobs = async () => {
+  const adminAuth = getAdminAuth()
+  if (!adminAuth || !selectedJobIds.value.length) return
+  if (!confirm(`Opravdu chcete smazat ${selectedJobIds.value.length} vybraných pozic?`)) return
+  loading.value = true
+  try {
+    await axios.post('/api/admin/jobs/bulk-delete', { ids: selectedJobIds.value }, adminAuth)
+    selectedJobIds.value = []
+    await fetchData()
+  } finally { loading.value = false }
+}
+
+const bulkAnalyzeJobs = async () => {
+  const adminAuth = getAdminAuth()
+  if (!adminAuth || !selectedJobIds.value.length) return
+  loading.value = true
+  try {
+    const res = await axios.post('/api/admin/jobs/bulk-analyze', { ids: selectedJobIds.value }, adminAuth)
+    selectedJobIds.value = []
+    lastAnalysisResult.value = res.data
+    await fetchData()
+  } finally { loading.value = false }
+}
+
 const fetchAvailableModels = async () => {
   const adminAuth = getAdminAuth()
   if (!newAiKey.value || !adminAuth) return
@@ -191,12 +228,6 @@ const scrapeBulk = async () => {
   } finally { loading.value = false }
 }
 
-const deleteJob = async (id: number) => {
-  const adminAuth = getAdminAuth()
-  if (!adminAuth || !confirm('Opravdu chcete tuto pozici smazat?')) return
-  await axios.delete(`/api/admin/jobs/${id}`, adminAuth); fetchData()
-}
-
 const filteredJobs = computed(() => {
   const q = searchQuery.value.toLowerCase()
   return jobs.value.filter(j => {
@@ -209,6 +240,11 @@ const filteredJobs = computed(() => {
 const isAllSourcesSelected = computed(() => sources.value.length > 0 && selectedSourceIds.value.length === sources.value.length)
 const toggleSelectAllSources = () => {
   selectedSourceIds.value = isAllSourcesSelected.value ? [] : sources.value.map(s => s.id)
+}
+
+const isAllJobsSelected = computed(() => filteredJobs.value.length > 0 && selectedJobIds.value.length === filteredJobs.value.length)
+const toggleSelectAllJobs = () => {
+  selectedJobIds.value = isAllJobsSelected.value ? [] : filteredJobs.value.map(j => j.id)
 }
 
 const formatDate = (d: string | null) => d ? new Date(d).toLocaleString('cs-CZ', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '---'
@@ -409,37 +445,65 @@ onUnmounted(() => clearInterval(logInterval))
           </button>
         </div>
 
+        <div v-if="filteredJobs.length" class="bg-white p-3 rounded-2xl border border-gray-100 flex items-center justify-between shadow-sm">
+          <label class="flex items-center gap-2 text-[10px] font-black text-gray-400 uppercase tracking-widest cursor-pointer px-3">
+            <input type="checkbox" :checked="isAllJobsSelected" @change="toggleSelectAllJobs" class="rounded text-blue-600"> Vybrat vše
+          </label>
+          <div v-if="selectedJobIds.length" class="flex gap-2 animate-in fade-in slide-in-from-right-2">
+            <button @click="bulkAnalyzeJobs" class="text-[10px] font-black bg-purple-600 text-white px-3 py-1.5 rounded-lg hover:bg-purple-700 transition-all flex items-center gap-2">
+              <Cpu :size="12" /> ANALYZOVAT ({{ selectedJobIds.length }})
+            </button>
+            <button @click="bulkDeleteJobs" class="text-[10px] font-black bg-red-600 text-white px-3 py-1.5 rounded-lg hover:bg-red-700 transition-all flex items-center gap-2">
+              <Trash2 :size="12" /> SMAZAT ({{ selectedJobIds.length }})
+            </button>
+          </div>
+        </div>
+
         <div class="space-y-4 pb-20">
-          <div v-for="job in filteredJobs" :key="job.id" class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm hover:border-blue-100 transition-all group">
-            <div class="flex justify-between items-start mb-4">
-              <div class="flex-1 min-w-0 pr-4">
-                <div class="flex items-center gap-2 mb-1">
-                  <h3 class="font-black text-xl text-[#002B5C] truncate">{{ job.title }}</h3>
-                  <a v-if="job.link" :href="job.link" target="_blank" class="text-gray-300 hover:text-blue-600 transition-colors"><ExternalLink :size="16" /></a>
+          <div v-for="job in filteredJobs" :key="job.id" class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm hover:border-blue-100 transition-all group relative overflow-hidden">
+            <div class="flex items-start gap-4">
+              <input type="checkbox" v-model="selectedJobIds" :value="job.id" class="mt-2 rounded text-blue-600">
+              <div class="flex-1 min-w-0">
+                <div class="flex justify-between items-start mb-4">
+                  <div class="flex-1 min-w-0 pr-4">
+                    <div class="flex items-center gap-2 mb-1">
+                      <h3 class="font-black text-xl text-[#002B5C] truncate">{{ job.title }}</h3>
+                      <a v-if="job.link" :href="job.link" target="_blank" class="text-gray-300 hover:text-blue-600 transition-colors"><ExternalLink :size="16" /></a>
+                    </div>
+                    <div class="flex items-center gap-4 text-sm font-medium text-gray-500">
+                      <span class="flex items-center gap-1.5"><Briefcase :size="14" /> {{ job.company }}</span>
+                      <span class="flex items-center gap-1.5"><MapPin :size="14" /> {{ job.location || 'Dle webu' }}</span>
+                    </div>
+                  </div>
+                  <div class="flex flex-col items-end gap-2 shrink-0">
+                    <div class="flex gap-1">
+                      <button @click="analyzeSingleJob(job.id)" :disabled="analyzingIds.has(job.id)" class="px-3 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 text-[10px] font-black uppercase rounded-lg transition-all">
+                        <Cpu :size="12" :class="['inline mr-1', { 'animate-pulse': analyzingIds.has(job.id) }]" /> Analyzovat
+                      </button>
+                      <button @click="deletingJobId = job.id" class="p-1.5 hover:bg-red-50 rounded-lg text-gray-300 hover:text-red-500 transition-all"><Trash2 :size="16" /></button>
+                    </div>
+                    <div class="flex items-center gap-1">
+                      <span v-if="job.last_analyzed_at" class="text-green-500 text-[10px] font-bold"><CheckCircle2 :size="14" class="inline" /> OK</span>
+                      <span v-else class="text-amber-400 text-[10px] font-bold"><AlertCircle :size="14" class="inline" /> AI?</span>
+                    </div>
+                  </div>
                 </div>
-                <div class="flex items-center gap-4 text-sm font-medium text-gray-500">
-                  <span class="flex items-center gap-1.5"><Briefcase :size="14" /> {{ job.company }}</span>
-                  <span class="flex items-center gap-1.5"><MapPin :size="14" /> {{ job.location || 'Dle webu' }}</span>
+
+                <div v-if="deletingJobId === job.id" class="mb-4 p-4 bg-red-50 rounded-xl border border-red-100 animate-in fade-in slide-in-from-top-2">
+                  <p class="text-[10px] font-bold text-red-600 mb-2 uppercase tracking-widest">Smazat tuto pozici?</p>
+                  <div class="flex gap-2">
+                    <button @click="confirmDeleteJob(job.id)" :disabled="loading" class="bg-red-600 text-white px-3 py-1 rounded text-[10px] font-black hover:bg-red-700 disabled:opacity-50">SMAZAT</button>
+                    <button @click="deletingJobId = null" class="bg-white border border-gray-200 text-gray-500 px-3 py-1 rounded text-[10px] font-black hover:bg-gray-50">ZRUŠIT</button>
+                  </div>
+                </div>
+
+                <div v-if="job.keywords" class="flex flex-wrap gap-1.5 mb-4">
+                  <span v-for="kw in job.keywords.split(',')" :key="kw" class="px-2 py-0.5 rounded bg-gray-50 text-gray-400 text-[9px] font-bold uppercase border border-gray-100">{{ kw.trim() }}</span>
+                </div>
+                <div :class="['rounded-xl p-4 text-sm border-l-4', job.summary?.includes('Chyba AI') ? 'bg-red-50 text-red-700 border-red-200' : job.summary ? 'bg-blue-50/50 text-[#002B5C] border-blue-200' : 'bg-gray-50 text-gray-400 border-gray-200 italic']">
+                  {{ job.summary || 'Tato pozice zatím nebyla zpracována AI modelem.' }}
                 </div>
               </div>
-              <div class="flex flex-col items-end gap-2 shrink-0">
-                <div class="flex gap-1">
-                  <button @click="analyzeSingleJob(job.id)" :disabled="analyzingIds.has(job.id)" class="px-3 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 text-[10px] font-black uppercase rounded-lg transition-all">
-                    <Cpu :size="12" :class="['inline mr-1', { 'animate-pulse': analyzingIds.has(job.id) }]" /> Analyzovat
-                  </button>
-                  <button @click="deleteJob(job.id)" class="p-1.5 hover:bg-red-50 rounded-lg text-gray-300 hover:text-red-500 transition-all"><Trash2 :size="16" /></button>
-                </div>
-                <div class="flex items-center gap-1">
-                  <span v-if="job.last_analyzed_at" class="text-green-500 text-[10px] font-bold"><CheckCircle2 :size="14" class="inline" /> OK</span>
-                  <span v-else class="text-amber-400 text-[10px] font-bold"><AlertCircle :size="14" class="inline" /> AI?</span>
-                </div>
-              </div>
-            </div>
-            <div v-if="job.keywords" class="flex flex-wrap gap-1.5 mb-4">
-              <span v-for="kw in job.keywords.split(',')" :key="kw" class="px-2 py-0.5 rounded bg-gray-50 text-gray-400 text-[9px] font-bold uppercase border border-gray-100">{{ kw.trim() }}</span>
-            </div>
-            <div :class="['rounded-xl p-4 text-sm border-l-4', job.summary?.includes('Chyba AI') ? 'bg-red-50 text-red-700 border-red-200' : job.summary ? 'bg-blue-50/50 text-[#002B5C] border-blue-200' : 'bg-gray-50 text-gray-400 border-gray-200 italic']">
-              {{ job.summary || 'Tato pozice zatím nebyla zpracována AI modelem.' }}
             </div>
           </div>
         </div>
