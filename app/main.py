@@ -20,7 +20,7 @@ from app.analyzator import analyze_job_with_ai
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Job Scraper API")
+app = FastAPI(title="CNAIP Jobs API")
 
 app.add_middleware(
     CORSMiddleware,

@@ -10,7 +10,7 @@ import { Rocket, Settings, LayoutDashboard } from 'lucide-vue-next'
           <div class="flex items-center gap-8">
             <router-link to="/" class="flex items-center gap-2">
               <Rocket class="text-blue-400" />
-              <span class="font-bold text-xl tracking-tight">Job Scraper Pro</span>
+              <span class="font-bold text-xl tracking-tight">CNAIP Jobs</span>
             </router-link>
             <div class="hidden md:flex gap-4">
               <router-link to="/" class="text-gray-300 hover:text-white flex items-center gap-1 text-sm font-medium" active-class="text-white border-b-2 border-blue-500 pb-1">
