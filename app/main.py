@@ -4,9 +4,10 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
+from pydantic import BaseModel
 import os
 import logging
-from typing import List
+from typing import List, Optional
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -32,6 +33,14 @@ app.add_middleware(
 
 security = HTTPBasic()
 
+class JobUpdate(BaseModel):
+    title: Optional[str] = None
+    company: Optional[str] = None
+    location: Optional[str] = None
+    summary: Optional[str] = None
+    keywords: Optional[str] = None
+    link: Optional[str] = None
+
 def authenticate_admin(credentials: HTTPBasicCredentials = Depends(security)):
     admin_user = os.getenv("ADMIN_USERNAME", "admin")
     admin_pass = os.getenv("ADMIN_PASSWORD", "admin123")
@@ -54,6 +63,26 @@ def get_jobs(db: Session = Depends(get_db)):
 @app.get("/api/sources")
 def get_sources(db: Session = Depends(get_db)):
     return db.query(Source).all()
+
+@app.delete("/api/admin/jobs/{job_id}", dependencies=[Depends(authenticate_admin)])
+def delete_job(job_id: int, db: Session = Depends(get_db)):
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job: raise HTTPException(404, detail="Pozice nenalezena")
+    db.delete(job)
+    db.commit()
+    return {"status": "deleted"}
+
+@app.patch("/api/admin/jobs/{job_id}", dependencies=[Depends(authenticate_admin)])
+def update_job(job_id: int, job_update: JobUpdate, db: Session = Depends(get_db)):
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job: raise HTTPException(404, detail="Pozice nenalezena")
+    
+    update_data = job_update.dict(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(job, key, value)
+    
+    db.commit()
+    return job
 
 @app.get("/api/admin/settings/gemini-key", dependencies=[Depends(authenticate_admin)])
 def get_gemini_key(db: Session = Depends(get_db)):
@@ -86,7 +115,7 @@ async def run_scrape(source_id: int, db: Session = Depends(get_db)):
         if not existing:
             db.add(Job(
                 title=title, 
-                company=source.name, # Název firmy bereme z názvu zdroje
+                company=source.name, 
                 location=item.get('location'), 
                 raw_content=item.get('raw_content'), 
                 link=link,
@@ -94,7 +123,7 @@ async def run_scrape(source_id: int, db: Session = Depends(get_db)):
             ))
             new_count += 1
         else:
-            existing.company = source.name # Aktualizujeme i u stávajících
+            existing.company = source.name
             if not existing.link and link:
                 existing.link = link
     
