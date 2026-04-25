@@ -39,9 +39,25 @@ def sync_sequences():
     except Exception as e:
         logger.warning(f"Synchronizace sekvencí selhala (možná není Postgres): {e}")
 
+def fix_missing_columns():
+    """Ručně přidá chybějící sloupce do tabulky sources, pokud neexistují."""
+    try:
+        with engine.connect() as conn:
+            # Přidání sloupců pro statistiky, pokud chybí
+            try:
+                conn.execute(text("ALTER TABLE sources ADD COLUMN IF NOT EXISTS last_scrape_count INTEGER;"))
+                conn.execute(text("ALTER TABLE sources ADD COLUMN IF NOT EXISTS last_scrape_found INTEGER;"))
+                conn.commit()
+                logger.info("Chybějící sloupce v tabulce sources byly zkontrolovány/přidány.")
+            except Exception as col_err:
+                logger.warning(f"Nepodařilo se přidat sloupce (možná už existují): {col_err}")
+    except Exception as e:
+        logger.error(f"Chyba při kontrole schématu: {e}")
+
 def init_db():
     try:
         Base.metadata.create_all(bind=engine)
+        fix_missing_columns() # Přidáme chybějící sloupce do existujících tabulek
         sync_sequences()
         logger.info("Databázové schéma bylo inicializováno a sekvence opraveny.")
     except Exception as e:
