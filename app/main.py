@@ -8,6 +8,10 @@ import logging
 import csv
 import io
 from datetime import datetime
+from dotenv import load_dotenv
+
+# Načtení proměnných z .env nebo .env.local
+load_dotenv()
 
 # Importy
 from app.database import init_db, get_db
@@ -17,7 +21,6 @@ from app.analyzator import analyze_job_with_ai
 
 # Import migrační logiky
 try:
-    # Zajištění, že import funguje i když je main.py v podsložce app/
     import sys
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from migrate_data import migrate as run_db_migration
@@ -47,7 +50,6 @@ async def index(request: Request, db: Session = Depends(get_db)):
         sources = db.query(Source).all()
         gemini_key = db.query(Setting).filter(Setting.key == "gemini_api_key").first()
         
-        # Detekce typu databáze pro UI
         db_url = str(db.get_bind().url)
         is_supabase = "postgresql" in db_url or "supabase" in db_url
         
@@ -66,7 +68,7 @@ async def index(request: Request, db: Session = Depends(get_db)):
 async def trigger_migration():
     logger.info("[admin] Požadavek na migraci databáze")
     if not run_db_migration:
-        logger.error("[admin] Migrační skript nebyl nalezen v sys.path")
+        logger.error("[admin] Migrační skript nebyl nalezen")
         raise HTTPException(status_code=500, detail="Migrační skript nenalezen.")
     
     try:

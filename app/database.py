@@ -2,6 +2,10 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from app.models import Base
+from dotenv import load_dotenv
+
+# Zajištění načtení proměnných
+load_dotenv()
 
 # 1. Zkusíme vzít celou URL z prostředí
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -10,9 +14,8 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     db_pass = os.getenv("DB_PASSWORD")
     if db_pass:
-        # Poznámka: Pokud se připojení nezdaří (timeout), použijte v Supabase 
-        # v sekci Settings -> Database -> Connection String verzi 'Pooler' (port 6543)
-        DATABASE_URL = f"postgresql://postgres:{db_pass}@db.aoslyffxsmktzsrjakrb.supabase.co:5432/postgres"
+        # Použití Pooler portu 6543 pro lepší kompatibilitu (často nutné u serverless/agentů)
+        DATABASE_URL = f"postgresql://postgres:{db_pass}@db.aoslyffxsmktzsrjakrb.supabase.co:6543/postgres"
 
 # 3. Finální fallback na lokální SQLite
 if not DATABASE_URL:
