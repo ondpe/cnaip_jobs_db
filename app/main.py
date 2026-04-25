@@ -10,7 +10,7 @@ import io
 from datetime import datetime
 from dotenv import load_dotenv
 
-# Načtení proměnných z .env nebo .env.local
+# Načtení proměnných z .env (hledá v aktuálním i nadřazeném adresáři)
 load_dotenv()
 
 # Importy
@@ -46,11 +46,11 @@ def startup_event():
 @app.get("/debug-env")
 def debug_env():
     """Endpoint pro kontrolu dostupných environmentálních proměnných."""
-    # Vypíše všechny klíče, ale skryje hodnoty kvůli bezpečnosti
     return {
         "keys": list(os.environ.keys()), 
-        "database_url_exists": "DATABASE_URL" in os.environ,
-        "db_password_exists": "DB_PASSWORD" in os.environ
+        "database_url_exists": bool(os.getenv("DATABASE_URL")),
+        "db_password_exists": bool(os.getenv("DB_PASSWORD")),
+        "env_file_exists": os.path.exists(".env")
     }
 
 @app.get("/", response_class=HTMLResponse)
@@ -60,6 +60,7 @@ async def index(request: Request, db: Session = Depends(get_db)):
         sources = db.query(Source).all()
         gemini_key = db.query(Setting).filter(Setting.key == "gemini_api_key").first()
         
+        # Získání URL aktuální databáze pro info v UI
         db_url = str(db.get_bind().url)
         is_supabase = "postgresql" in db_url or "supabase" in db_url
         
@@ -76,16 +77,12 @@ async def index(request: Request, db: Session = Depends(get_db)):
 
 @app.post("/api/admin/migrate-db")
 async def trigger_migration():
-    logger.info("[admin] Požadavek na migraci databáze")
     if not run_db_migration:
-        logger.error("[admin] Migrační skript nebyl nalezen")
         raise HTTPException(status_code=500, detail="Migrační skript nenalezen.")
-    
     try:
         run_db_migration()
         return {"message": "Migrace byla úspěšně spuštěna a dokončena."}
     except Exception as e:
-        logger.error(f"[admin] Migrace selhala: {e}")
         raise HTTPException(status_code=500, detail=f"Migrace selhala: {str(e)}")
 
 @app.get("/export/jobs")
