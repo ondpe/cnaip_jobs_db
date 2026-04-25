@@ -38,13 +38,16 @@ def sync_sequences():
 def fix_missing_columns():
     try:
         with engine.connect() as conn:
-            # Sloupce pro sources
+            # Sloupce pro sources (statistiky)
             conn.execute(text("ALTER TABLE sources ADD COLUMN IF NOT EXISTS last_scrape_count INTEGER;"))
             conn.execute(text("ALTER TABLE sources ADD COLUMN IF NOT EXISTS last_scrape_found INTEGER;"))
-            # Důležité: Sloupec link pro jobs
+            
+            # Sloupce pro jobs (odkaz a surový obsah)
             conn.execute(text("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS link TEXT;"))
+            conn.execute(text("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS raw_content TEXT;"))
+            
             conn.commit()
-            logger.info("Kontrola schématu (sloupce link, statistiky) dokončena.")
+            logger.info("Kontrola schématu (sloupce link, raw_content, statistiky) dokončena.")
     except Exception as e:
         logger.error(f"Chyba při kontrole schématu: {e}")
 
