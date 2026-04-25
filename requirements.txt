@@ -1,11 +1,11 @@
 fastapi
 uvicorn
 sqlalchemy
+psycopg2-binary
 requests
-beautifulsoup4
+bs4
+playwright
 pandas
 openpyxl
 google-generativeai
-jinja2
-psycopg2-binary
-python-multipart
+python-dotenv
