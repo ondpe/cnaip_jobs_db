@@ -5,7 +5,7 @@ import axios from 'axios'
 import { 
   Plus, Play, Cpu, Search, 
   RefreshCw, Clock, Briefcase, MapPin, 
-  Key, X, ExternalLink, Trash2, Filter, CheckCircle2, AlertCircle, AlertTriangle, Terminal, ChevronRight, LogOut, ShieldCheck, User, Lock
+  Key, X, ExternalLink, Trash2, Filter, CheckCircle2, AlertCircle, AlertTriangle, Terminal, ChevronRight, LogOut, ShieldCheck, User, Lock, Loader2
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -44,7 +44,9 @@ const deletingJobId = ref<number | null>(null)
 const showBulkDeleteConfirm = ref(false)
 const showLogs = ref(false)
 const debugLogs = ref<string[]>([])
+const currentActivity = ref<string | null>(null)
 let logInterval: any = null
+let statusInterval: any = null
 
 const newSource = ref({ name: '', url: '' })
 const newCreds = ref({ username: '', password: '' })
@@ -86,7 +88,6 @@ const fetchData = async () => {
     }
   } catch (e: any) { 
     if (e.response?.status === 401) logout()
-    console.error("Chyba při načítání dat", e) 
   }
 }
 
@@ -96,30 +97,43 @@ const fetchLogs = async () => {
   try {
     const res = await axios.get('/api/admin/debug/logs', adminAuth)
     debugLogs.value = res.data.logs
-  } catch (e) { console.error("Chyba při načítání logů", e) }
+  } catch (e) {}
 }
 
-const startLogPolling = () => {
+const fetchStatus = async () => {
+  const adminAuth = getAdminAuth()
+  if (!adminAuth) return
+  try {
+    const res = await axios.get('/api/admin/status', adminAuth)
+    currentActivity.value = res.data.activity
+  } catch (e) {}
+}
+
+const startPolling = () => {
   if (logInterval) clearInterval(logInterval)
+  if (statusInterval) clearInterval(statusInterval)
   fetchLogs()
-  logInterval = setInterval(fetchLogs, 1000) // Zrychleno na 1 sekundu pro "real-time" pocit
+  fetchStatus()
+  logInterval = setInterval(fetchLogs, 1000)
+  statusInterval = setInterval(fetchStatus, 1500)
 }
 
 const toggleLogs = () => {
   showLogs.value = !showLogs.value
   if (showLogs.value) {
-    startLogPolling()
+    startPolling()
   } else {
     clearInterval(logInterval)
+    clearInterval(statusInterval)
     logInterval = null
+    statusInterval = null
   }
 }
 
-// Pokud začne loading a logy nejsou zobrazené, automaticky je zobrazíme a zapneme polling
 watch(loading, (newVal) => {
   if (newVal && !showLogs.value) {
     showLogs.value = true
-    startLogPolling()
+    startPolling()
   }
 })
 
@@ -174,9 +188,8 @@ const bulkAnalyzeJobs = async () => {
   if (!adminAuth || !selectedJobIds.value.length) return
   loading.value = true
   try {
-    const res = await axios.post('/api/admin/jobs/bulk-analyze', { ids: selectedJobIds.value }, adminAuth)
+    await axios.post('/api/admin/jobs/bulk-analyze', { ids: selectedJobIds.value }, adminAuth)
     selectedJobIds.value = []
-    lastAnalysisResult.value = res.data
     await fetchData()
   } finally { loading.value = false }
 }
@@ -228,8 +241,8 @@ const runBulkAiAnalysis = async () => {
   if (!adminAuth) return
   loading.value = true; showConfirmAnalysis.value = false; lastAnalysisResult.value = null
   try {
-    const res = await axios.post('/api/admin/run-ai-analysis', {}, adminAuth)
-    lastAnalysisResult.value = res.data; await fetchData()
+    await axios.post('/api/admin/run-ai-analysis', {}, adminAuth)
+    await fetchData()
   } finally { loading.value = false }
 }
 
@@ -285,7 +298,7 @@ const toggleSelectAllJobs = () => {
 const formatDate = (d: string | null) => d ? new Date(d).toLocaleString('cs-CZ', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '---'
 
 onMounted(fetchData)
-onUnmounted(() => clearInterval(logInterval))
+onUnmounted(() => { clearInterval(logInterval); clearInterval(statusInterval); })
 </script>
 
 <template>
@@ -347,14 +360,10 @@ onUnmounted(() => clearInterval(logInterval))
             <button @click="runBulkAiAnalysis" class="bg-green-600 text-white px-4 py-1.5 rounded-lg text-xs font-black hover:bg-green-700 transition-all">ANO</button>
             <button @click="showConfirmAnalysis = false" class="bg-gray-100 text-gray-500 px-4 py-1.5 rounded-lg text-xs font-black hover:bg-gray-200 transition-all">ZRUŠIT</button>
           </div>
-          <div v-if="lastAnalysisResult" class="text-[10px] font-bold uppercase tracking-widest animate-in fade-in">
-            <span class="text-green-600 bg-green-50 px-2 py-1 rounded">Ok: {{ lastAnalysisResult.count }}</span>
-            <span class="text-red-600 bg-red-50 px-2 py-1 rounded ml-2">Smazáno: {{ lastAnalysisResult.deleted }}</span>
-          </div>
         </div>
       </div>
 
-      <!-- Inline AI Settings Form -->
+      <!-- Inline AI Settings Form (zůstává stejné) -->
       <div v-if="isEditingAi" class="px-5 pb-5 pt-0 animate-in slide-in-from-top-2">
         <div class="p-6 bg-blue-50/50 rounded-2xl border border-blue-100 space-y-4">
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -383,7 +392,7 @@ onUnmounted(() => clearInterval(logInterval))
         </div>
       </div>
 
-      <!-- Credentials Settings Form -->
+      <!-- Credentials Settings Form (zůstává stejné) -->
       <div v-if="isEditingCreds" class="px-5 pb-5 pt-0 animate-in slide-in-from-top-2">
         <div class="p-6 bg-gray-50/80 rounded-2xl border border-gray-200 space-y-4">
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -412,14 +421,20 @@ onUnmounted(() => clearInterval(logInterval))
       </div>
     </div>
 
-    <!-- Debug Log Console -->
-    <div v-if="showLogs" class="bg-gray-900 text-green-400 p-4 rounded-2xl font-mono text-xs overflow-y-auto max-h-60 shadow-2xl border border-gray-800 animate-in slide-in-from-top-4 duration-300">
-      <div class="flex justify-between items-center mb-3 text-gray-500 font-bold border-b border-gray-800 pb-2">
-        <span>BACKEND DEBUG CONSOLE</span>
-        <span class="animate-pulse">● LIVE</span>
+    <!-- Debug Log Console s indikátorem aktivity -->
+    <div v-if="showLogs" class="flex flex-col gap-2 animate-in slide-in-from-top-4 duration-300">
+      <div v-if="currentActivity" class="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest flex items-center gap-3 shadow-lg shadow-blue-200">
+        <Loader2 :size="16" class="animate-spin" /> Běžící aktivita: {{ currentActivity }}
       </div>
-      <div v-for="(log, idx) in debugLogs" :key="idx" class="mb-1">
-        <span class="text-gray-600">>>></span> {{ log }}
+      
+      <div class="bg-gray-900 text-green-400 p-4 rounded-2xl font-mono text-xs overflow-y-auto max-h-60 shadow-2xl border border-gray-800">
+        <div class="flex justify-between items-center mb-3 text-gray-500 font-bold border-b border-gray-800 pb-2">
+          <span>BACKEND DEBUG CONSOLE</span>
+          <span class="animate-pulse">● LIVE</span>
+        </div>
+        <div v-for="(log, idx) in debugLogs" :key="idx" class="mb-1">
+          <span class="text-gray-600">>>></span> {{ log }}
+        </div>
       </div>
     </div>
 
@@ -575,7 +590,7 @@ onUnmounted(() => clearInterval(logInterval))
                 <div v-if="job.keywords" class="flex flex-wrap gap-1.5 mb-4">
                   <span v-for="kw in job.keywords.split(',')" :key="kw" class="px-2 py-0.5 rounded bg-gray-50 text-gray-400 text-[9px] font-bold uppercase border border-gray-100">{{ kw.trim() }}</span>
                 </div>
-                <div :class="['rounded-xl p-4 text-sm border-l-4', job.summary?.includes('Chyba AI') ? 'bg-red-50 text-red-700 border-red-200' : job.summary ? 'bg-blue-50/50 text-[#002B5C] border-blue-200' : 'bg-gray-50 text-gray-400 border-gray-200 italic']">
+                <div :class="['rounded-xl p-4 text-sm border-l-4', job.summary?.includes('⚠️') ? 'bg-amber-50 text-amber-700 border-amber-200' : job.summary?.includes('Chyba AI') ? 'bg-red-50 text-red-700 border-red-200' : job.summary ? 'bg-blue-50/50 text-[#002B5C] border-blue-200' : 'bg-gray-50 text-gray-400 border-gray-200 italic']">
                   {{ job.summary || 'Tato pozice zatím nebyla zpracována AI modelem.' }}
                 </div>
               </div>

@@ -26,6 +26,9 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="CNAIP Jobs API")
 
+# Globální stav pro sledování běžící aktivity
+current_activity = None
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -90,9 +93,12 @@ def delete_source(source_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"status": "deleted"}
 
+@app.get("/api/admin/status", dependencies=[Depends(authenticate_admin)])
+def get_status():
+    return {"activity": current_activity}
+
 @app.get("/api/admin/debug/logs", dependencies=[Depends(authenticate_admin)])
 def get_debug_logs():
-    # Vrátíme kopii, abychom se vyhnuli problémům s mutací během iterace
     return {"logs": list(last_logs)}
 
 @app.delete("/api/admin/jobs/{job_id}", dependencies=[Depends(authenticate_admin)])
@@ -166,140 +172,155 @@ def get_ai_config(db: Session):
 
 @app.post("/api/admin/run-ai-analysis", dependencies=[Depends(authenticate_admin)])
 async def run_analysis(db: Session = Depends(get_db)):
-    api_key, model_name = get_ai_config(db)
-    unprocessed = db.query(Job).filter(
-        (Job.summary == "") | (Job.summary == None) | (Job.summary.like("%Čeká na AI%")) | (Job.summary.like("%Chyba AI%"))
-    ).all()
-    
-    total = len(unprocessed)
-    add_debug_log(f"Spouštím hromadnou analýzu pro {total} pozic...")
-    
-    analyzed_count = 0
-    deleted_count = 0
-    for i, job in enumerate(unprocessed):
-        add_debug_log(f"[{i+1}/{total}] Zpracovávám: {job.title} ({job.company})")
-        if (not job.raw_content or len(job.raw_content) < 500) and job.link:
-            add_debug_log(f"   Stahuji detail z {job.link}")
-            full_text = await fetch_job_detail(job.link)
-            if full_text:
-                job.raw_content = full_text
-                db.commit()
-
-        # Spustíme synchronní AI volání v threadpoolu, aby neblokovalo event loop
-        analysis = await run_in_threadpool(analyze_job_with_ai, job.raw_content or job.title, api_key, model_name)
+    global current_activity
+    current_activity = "Hromadná AI analýza"
+    try:
+        api_key, model_name = get_ai_config(db)
+        unprocessed = db.query(Job).filter(
+            (Job.summary == "") | (Job.summary == None) | (Job.summary.like("%Čeká na AI%")) | (Job.summary.like("%Chyba AI%"))
+        ).all()
         
-        if not analysis.get("is_job", True):
-            add_debug_log(f"   AI: Není to job, mažu.")
-            db.delete(job)
-            deleted_count += 1
-        else:
-            seniority = analysis.get("seniority", "Medior")
-            tech_keywords = analysis.get("keywords", "")
-            job.keywords = f"{seniority}, {tech_keywords}" if tech_keywords else seniority
-            job.summary = analysis.get('summary', 'Bez shrnutí')
+        total = len(unprocessed)
+        add_debug_log(f"Spouštím hromadnou analýzu pro {total} pozic...")
+        
+        analyzed_count = 0
+        for i, job in enumerate(unprocessed):
+            add_debug_log(f"[{i+1}/{total}] Zpracovávám: {job.title} ({job.company})")
+            if (not job.raw_content or len(job.raw_content) < 500) and job.link:
+                add_debug_log(f"   Stahuji detail z {job.link}")
+                full_text = await fetch_job_detail(job.link)
+                if full_text:
+                    job.raw_content = full_text
+                    db.commit()
+
+            analysis = await run_in_threadpool(analyze_job_with_ai, job.raw_content or job.title, api_key, model_name)
+            
+            # Druhá fáze už nemaže, jen varuje
+            if not analysis.get("is_job", True):
+                add_debug_log(f"   AI WARNING: AI si není jistá, zda je toto inzerát.")
+                job.summary = "⚠️ AI detekovala nízkou relevanci: " + (analysis.get('summary', ''))
+            else:
+                seniority = analysis.get("seniority", "Medior")
+                tech_keywords = analysis.get("keywords", "")
+                job.keywords = f"{seniority}, {tech_keywords}" if tech_keywords else seniority
+                job.summary = analysis.get('summary', 'Bez shrnutí')
+            
             job.last_analyzed_at = datetime.utcnow()
             analyzed_count += 1
-            add_debug_log(f"   AI: Ok ({seniority})")
-        db.commit()
-    
-    add_debug_log(f"Analýza dokončena. Zpracováno: {analyzed_count}, Smazáno: {deleted_count}")
-    return {"count": analyzed_count, "deleted": deleted_count}
+            db.commit()
+        
+        add_debug_log(f"Analýza dokončena. Zpracováno: {analyzed_count}")
+        return {"count": analyzed_count}
+    finally:
+        current_activity = None
 
 @app.post("/api/admin/jobs/bulk-analyze", dependencies=[Depends(authenticate_admin)])
 async def bulk_analyze_jobs(action: BulkAction, db: Session = Depends(get_db)):
-    api_key, model_name = get_ai_config(db)
-    jobs_to_analyze = db.query(Job).filter(Job.id.in_(action.ids)).all()
+    global current_activity
+    current_activity = f"Analýza výběru ({len(action.ids)} pozic)"
+    try:
+        api_key, model_name = get_ai_config(db)
+        jobs_to_analyze = db.query(Job).filter(Job.id.in_(action.ids)).all()
+        
+        total = len(jobs_to_analyze)
+        add_debug_log(f"Spouštím vybranou analýzu pro {total} pozic...")
+        
+        count = 0
+        for i, job in enumerate(jobs_to_analyze):
+            add_debug_log(f"[{i+1}/{total}] Zpracovávám: {job.title} ({job.company})")
+            if (not job.raw_content or len(job.raw_content) < 500) and job.link:
+                full_text = await fetch_job_detail(job.link)
+                if full_text:
+                    job.raw_content = full_text
+                    db.commit()
+
+            analysis = await run_in_threadpool(analyze_job_with_ai, job.raw_content or job.title, api_key, model_name)
+            
+            if not analysis.get("is_job", True):
+                job.summary = "⚠️ Nízká relevance: " + (analysis.get('summary', ''))
+            else:
+                seniority = analysis.get("seniority", "Medior")
+                tech_keywords = analysis.get("keywords", "")
+                job.keywords = f"{seniority}, {tech_keywords}" if tech_keywords else seniority
+                job.summary = analysis.get('summary', 'Bez shrnutí')
+                
+            job.last_analyzed_at = datetime.utcnow()
+            count += 1
+            db.commit()
+        
+        add_debug_log(f"Hromadná analýza hotova. Ok: {count}")
+        return {"count": count}
+    finally:
+        current_activity = None
+
+@app.post("/api/admin/analyze-job/{job_id}", dependencies=[Depends(authenticate_admin)])
+async def analyze_single_job(job_id: int, db: Session = Depends(get_db)):
+    global current_activity
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job: raise HTTPException(404, detail="Pozice nenalezena")
     
-    total = len(jobs_to_analyze)
-    add_debug_log(f"Spouštím vybranou analýzu pro {total} pozic...")
-    
-    count = 0
-    deleted = 0
-    for i, job in enumerate(jobs_to_analyze):
-        add_debug_log(f"[{i+1}/{total}] Zpracovávám: {job.title} ({job.company})")
+    current_activity = f"Analýza: {job.title}"
+    try:
+        add_debug_log(f"Manuální analýza: {job.title}")
         if (not job.raw_content or len(job.raw_content) < 500) and job.link:
             full_text = await fetch_job_detail(job.link)
             if full_text:
                 job.raw_content = full_text
                 db.commit()
 
+        api_key, model_name = get_ai_config(db)
         analysis = await run_in_threadpool(analyze_job_with_ai, job.raw_content or job.title, api_key, model_name)
+        
         if not analysis.get("is_job", True):
-            db.delete(job)
-            deleted += 1
+            job.summary = "⚠️ Nízká relevance: " + (analysis.get('summary', ''))
         else:
             seniority = analysis.get("seniority", "Medior")
             tech_keywords = analysis.get("keywords", "")
             job.keywords = f"{seniority}, {tech_keywords}" if tech_keywords else seniority
             job.summary = analysis.get('summary', 'Bez shrnutí')
-            job.last_analyzed_at = datetime.utcnow()
-            count += 1
+            
+        job.last_analyzed_at = datetime.utcnow()
         db.commit()
-    
-    add_debug_log(f"Hromadná analýza hotova. Ok: {count}, Smazáno: {deleted}")
-    return {"count": count, "deleted": deleted}
-
-@app.post("/api/admin/analyze-job/{job_id}", dependencies=[Depends(authenticate_admin)])
-async def analyze_single_job(job_id: int, db: Session = Depends(get_db)):
-    job = db.query(Job).filter(Job.id == job_id).first()
-    if not job: raise HTTPException(404, detail="Pozice nenalezena")
-    
-    add_debug_log(f"Manuální analýza: {job.title}")
-    if (not job.raw_content or len(job.raw_content) < 500) and job.link:
-        full_text = await fetch_job_detail(job.link)
-        if full_text:
-            job.raw_content = full_text
-            db.commit()
-
-    api_key, model_name = get_ai_config(db)
-    analysis = await run_in_threadpool(analyze_job_with_ai, job.raw_content or job.title, api_key, model_name)
-    
-    if not analysis.get("is_job", True):
-        add_debug_log("   AI: Není to job, mažu.")
-        db.delete(job)
-        db.commit()
-        return {"status": "deleted"}
-    
-    seniority = analysis.get("seniority", "Medior")
-    tech_keywords = analysis.get("keywords", "")
-    job.keywords = f"{seniority}, {tech_keywords}" if tech_keywords else seniority
-    job.summary = analysis.get('summary', 'Bez shrnutí')
-    job.last_analyzed_at = datetime.utcnow()
-    db.commit()
-    add_debug_log(f"   AI: Hotovo ({seniority})")
-    return analysis
+        return analysis
+    finally:
+        current_activity = None
 
 @app.post("/api/admin/scrape/{source_id}", dependencies=[Depends(authenticate_admin)])
 async def run_scrape(source_id: int, db: Session = Depends(get_db)):
+    global current_activity
     source = db.query(Source).filter(Source.id == source_id).first()
     if not source: raise HTTPException(404, detail="Zdroj nenalezen")
     
-    add_debug_log(f"Spouštím scraping zdroje: {source.name} ({source.url})")
-    api_key, model_name = get_ai_config(db)
-    scraped = await scrape_source(source.url, source.name)
-    
-    add_debug_log(f"Nalezeno {len(scraped)} odkazů. Provádím rychlou filtraci...")
-    
-    new_count = 0
-    relevant_found = 0
-    for i, item in enumerate(scraped):
-        existing = db.query(Job).filter(Job.title == item['title'], Job.source_id == source.id).first()
-        if existing:
-            relevant_found += 1
-        else:
-            # Rychlá AI filtrace (v threadpoolu)
-            is_job = await run_in_threadpool(is_likely_job, item['title'], item.get('url', ''), api_key, model_name)
-            if is_job:
-                db.add(Job(title=item['title'], company=source.name, location=item.get('location'), raw_content=item.get('raw_content'), link=item.get('url'), source_id=source.id))
-                new_count += 1
+    current_activity = f"Scraping: {source.name}"
+    try:
+        add_debug_log(f"Spouštím scraping zdroje: {source.name} ({source.url})")
+        api_key, model_name = get_ai_config(db)
+        scraped = await scrape_source(source.url, source.name)
+        
+        add_debug_log(f"Nalezeno {len(scraped)} odkazů. Provádím rychlou filtraci...")
+        
+        new_count = 0
+        relevant_found = 0
+        for i, item in enumerate(scraped):
+            existing = db.query(Job).filter(Job.title == item['title'], Job.source_id == source.id).first()
+            if existing:
                 relevant_found += 1
-                
-    source.last_crawled_at = datetime.utcnow()
-    source.last_scrape_count = new_count
-    source.last_scrape_found = relevant_found
-    db.commit()
-    add_debug_log(f"Scraping hotov. Relevantních celkem: {relevant_found}, z toho nových: {new_count}")
-    return {"new": new_count, "relevant": relevant_found, "total_raw": len(scraped)}
+            else:
+                # V první fázi scrapingu STÁLE vyhazujeme nerelevantní
+                is_job = await run_in_threadpool(is_likely_job, item['title'], item.get('url', ''), api_key, model_name)
+                if is_job:
+                    db.add(Job(title=item['title'], company=source.name, location=item.get('location'), raw_content=item.get('raw_content'), link=item.get('url'), source_id=source.id))
+                    new_count += 1
+                    relevant_found += 1
+                    
+        source.last_crawled_at = datetime.utcnow()
+        source.last_scrape_count = new_count
+        source.last_scrape_found = relevant_found
+        db.commit()
+        add_debug_log(f"Scraping hotov. Relevantních celkem: {relevant_found}, z toho nových: {new_count}")
+        return {"new": new_count, "relevant": relevant_found, "total_raw": len(scraped)}
+    finally:
+        current_activity = None
 
 frontend_dist = os.path.join(os.getcwd(), "frontend", "dist")
 if os.path.exists(frontend_dist):
