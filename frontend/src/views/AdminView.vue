@@ -18,6 +18,7 @@ interface Job {
   id: number; title: string; company: string; location: string; 
   summary: string; keywords: string; link: string | null; 
   created_at: string; last_analyzed_at: string | null;
+  source_id: number;
 }
 
 const sources = ref<Source[]>([])
@@ -244,6 +245,10 @@ const scrapeBulk = async () => {
   } finally { loading.value = false }
 }
 
+const getJobCountForSource = (sourceId: number) => {
+  return jobs.value.filter(j => j.source_id === sourceId).length
+}
+
 const filteredJobs = computed(() => {
   const q = searchQuery.value.toLowerCase()
   return jobs.value.filter(j => {
@@ -460,8 +465,8 @@ onUnmounted(() => clearInterval(logInterval))
                   </div>
                   <div class="text-[10px] text-gray-400 mt-1 flex flex-col gap-1">
                     <span class="flex items-center gap-1"><Clock :size="10" /> {{ formatDate(source.last_crawled_at) }}</span>
-                    <div v-if="source.last_scrape_found !== null" class="flex items-center gap-2">
-                      <span class="text-blue-600 font-bold">Nalezeno: {{ source.last_scrape_found }}</span>
+                    <div v-if="source.last_crawled_at" class="flex items-center gap-2">
+                      <span class="text-blue-600 font-bold">V databázi: {{ getJobCountForSource(source.id) }}</span>
                       <span v-if="source.last_scrape_count" class="text-green-500 font-black px-1.5 py-0.5 bg-green-50 rounded-md">
                         +{{ source.last_scrape_count }} nové
                       </span>
