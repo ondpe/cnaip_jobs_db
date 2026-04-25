@@ -38,6 +38,7 @@ class Job(Base):
     keywords = Column(String(500))
     summary = Column(Text)
     raw_content = Column(Text)
+    link = Column(Text) # Nový sloupec pro odkaz na inzerát
     source_id = Column(Integer, ForeignKey("sources.id"), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     last_analyzed_at = Column(DateTime, nullable=True)

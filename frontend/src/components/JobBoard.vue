@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import axios from 'axios'
-import { Search, Briefcase, MapPin, Cpu, Clock } from 'lucide-vue-next'
+import { Search, Briefcase, MapPin, Cpu, Clock, ExternalLink } from 'lucide-vue-next'
 
 interface Job {
   id: number
@@ -10,6 +10,7 @@ interface Job {
   location: string
   summary: string
   keywords: string
+  link: string | null
   created_at: string
 }
 
@@ -75,16 +76,21 @@ onMounted(fetchJobs)
       <p class="text-gray-500">Načítám pracovní nabídky...</p>
     </div>
 
-    <!-- Jobs Table/List -->
+    <!-- Jobs List -->
     <div v-else class="grid gap-4">
       <div 
         v-for="job in filteredJobs" 
         :key="job.id" 
-        class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow"
+        class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-all group"
       >
         <div class="flex justify-between items-start">
           <div class="space-y-1">
-            <h3 class="text-xl font-bold text-gray-900 leading-tight">{{ job.title }}</h3>
+            <div class="flex items-center gap-2">
+              <h3 class="text-xl font-bold text-gray-900 leading-tight">{{ job.title }}</h3>
+              <a v-if="job.link" :href="job.link" target="_blank" class="text-blue-400 hover:text-blue-600 transition-colors" title="Otevřít inzerát">
+                <ExternalLink :size="18" />
+              </a>
+            </div>
             <div class="flex flex-wrap items-center gap-4 text-sm text-gray-500">
               <span class="flex items-center gap-1">
                 <Briefcase :size="16" /> {{ job.company }}
@@ -118,7 +124,6 @@ onMounted(fetchJobs)
         </div>
       </div>
 
-      <!-- Empty State -->
       <div v-if="filteredJobs.length === 0" class="text-center py-20 bg-white rounded-xl border-2 border-dashed border-gray-200">
         <p class="text-gray-500">Žádné pozice neodpovídají vašemu hledání.</p>
       </div>

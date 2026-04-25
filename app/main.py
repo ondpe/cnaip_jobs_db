@@ -57,7 +57,7 @@ def get_jobs(db: Session = Depends(get_db)):
 def get_sources(db: Session = Depends(get_db)):
     return db.query(Source).all()
 
-# --- ADMIN API (Zabezpečené) ---
+# --- ADMIN API ---
 
 @app.get("/api/admin/settings/gemini-key", dependencies=[Depends(authenticate_admin)])
 def get_gemini_key(db: Session = Depends(get_db)):
@@ -74,28 +74,27 @@ def set_gemini_key(key: str, db: Session = Depends(get_db)):
     db.commit()
     return {"status": "ok"}
 
-@app.post("/api/admin/sources", dependencies=[Depends(authenticate_admin)])
-def add_source(url: str, name: str, db: Session = Depends(get_db)):
-    new_source = Source(url=url, name=name)
-    db.add(new_source)
-    db.commit()
-    db.refresh(new_source)
-    return new_source
-
 @app.post("/api/admin/scrape/{source_id}", dependencies=[Depends(authenticate_admin)])
 async def run_scrape(source_id: int, db: Session = Depends(get_db)):
     source = db.query(Source).filter(Source.id == source_id).first()
     if not source: raise HTTPException(404, detail="Zdroj nenalezen")
     
     scraped = await scrape_source(source.url, source.name)
-    found_titles = []
     new_count = 0
     for item in scraped:
         title = item['title']
-        found_titles.append(title)
+        link = item.get('url')
+        # Kontrola unikátnosti podle titulku A odkazu
         existing = db.query(Job).filter(Job.title == title, Job.source_id == source.id).first()
         if not existing:
-            db.add(Job(title=title, company=item.get('company'), location=item.get('location'), raw_content=item.get('raw_content'), source_id=source.id))
+            db.add(Job(
+                title=title, 
+                company=item.get('company'), 
+                location=item.get('location'), 
+                raw_content=item.get('raw_content'), 
+                link=link,
+                source_id=source.id
+            ))
             new_count += 1
     
     source.last_crawled_at = datetime.utcnow()
@@ -121,10 +120,8 @@ def run_analysis(db: Session = Depends(get_db)):
 def analyze_single_job(job_id: int, db: Session = Depends(get_db)):
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job: raise HTTPException(404, detail="Pozice nenalezena")
-    
     key_setting = db.query(Setting).filter(Setting.key == "gemini_api_key").first()
     api_key = key_setting.value if key_setting else os.getenv("GEMINI_API_KEY")
-    
     analysis = analyze_job_with_ai(job.raw_content, api_key)
     job.keywords = analysis["keywords"]
     job.summary = f"{analysis['summary']} (Seniorita: {analysis['seniority']})"
@@ -133,7 +130,6 @@ def analyze_single_job(job_id: int, db: Session = Depends(get_db)):
     return analysis
 
 # --- FRONTEND ---
-
 frontend_dist = os.path.join(os.getcwd(), "frontend", "dist")
 if os.path.exists(frontend_dist):
     app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist, "assets")), name="assets")
