@@ -164,6 +164,7 @@ def run_analysis(db: Session = Depends(get_db)):
             analysis = analyze_job_with_ai(job.raw_content, api_key)
             job.keywords = analysis["keywords"]
             job.summary = f"{analysis['summary']} (Seniorita: {analysis['seniority']})"
+            job.last_analyzed_at = datetime.utcnow()
         db.commit()
         return {"message": f"Analyzováno {len(unprocessed)} pozic."}
     except Exception as e:

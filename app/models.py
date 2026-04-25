@@ -38,6 +38,7 @@ class Job(Base):
     raw_content = Column(Text)
     source_id = Column(Integer, ForeignKey("sources.id"), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+    last_analyzed_at = Column(DateTime, nullable=True)
     
     # Relationship to source
     source = relationship("Source", back_populates="jobs")

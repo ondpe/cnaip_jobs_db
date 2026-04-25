@@ -92,7 +92,14 @@
                         <div class="card-body">
                             <div class="d-flex justify-content-between">
                                 <h5 class="text-primary mb-1">{{ job.title }}</h5>
-                                <small class="text-muted">{{ job.created_at.strftime('%d.%m.%Y') }}</small>
+                                <div class="text-end">
+                                    <small class="text-muted d-block">{{ job.created_at.strftime('%d.%m.%Y') }}</small>
+                                    {% if job.last_analyzed_at %}
+                                    <small class="text-success" style="font-size: 0.7rem;">
+                                        <i class="bi bi-cpu"></i> AI: {{ job.last_analyzed_at.strftime('%d.%m %H:%M') }}
+                                    </small>
+                                    {% endif %}
+                                </div>
                             </div>
                             <h6 class="text-muted mb-2">{{ job.company }} • {{ job.location }}</h6>
                             <p class="small mb-2">{{ job.summary or "Čeká na AI analýzu..." }}</p>
