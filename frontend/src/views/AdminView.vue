@@ -156,9 +156,9 @@ onMounted(fetchData)
       </div>
     </div>
 
-    <div class="grid grid-cols-12 gap-8">
-      <!-- LEFT: Sources -->
-      <div class="col-span-12 lg:col-span-4 space-y-4">
+    <div class="grid grid-cols-12 gap-8 items-start">
+      <!-- LEFT: Sources (Sticky) -->
+      <div class="col-span-12 lg:col-span-4 sticky top-6">
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
           <div class="p-4 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
             <h2 class="font-bold text-gray-800">Zdroje ({{ sources.length }})</h2>
@@ -180,7 +180,7 @@ onMounted(fetchData)
             </button>
           </div>
 
-          <div class="divide-y divide-gray-100 max-h-[calc(100vh-400px)] overflow-y-auto">
+          <div class="divide-y divide-gray-100">
             <div v-for="source in sources" :key="source.id" class="p-4 hover:bg-gray-50 transition-colors group">
               <div class="flex items-start gap-3">
                 <input type="checkbox" v-model="selectedIds" :value="source.id" class="mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500">
@@ -208,7 +208,7 @@ onMounted(fetchData)
         </div>
       </div>
 
-      <!-- RIGHT: Jobs -->
+      <!-- RIGHT: Jobs (Full height) -->
       <div class="col-span-12 lg:col-span-8 space-y-4">
         <div class="flex items-center gap-4 bg-white p-2 rounded-xl shadow-sm border border-gray-200">
           <div class="relative flex-1">
@@ -218,7 +218,7 @@ onMounted(fetchData)
           <div class="px-4 py-1 border-l border-gray-100 text-sm font-medium text-gray-500">{{ filteredJobs.length }} pozic</div>
         </div>
 
-        <div class="space-y-3 max-h-[calc(100vh-400px)] overflow-y-auto pr-2">
+        <div class="space-y-3 pb-20">
           <div v-for="job in filteredJobs" :key="job.id" class="bg-white p-5 rounded-xl border border-gray-200 shadow-sm hover:border-blue-200 transition-all group">
             <div class="flex justify-between items-start mb-3">
               <div>
