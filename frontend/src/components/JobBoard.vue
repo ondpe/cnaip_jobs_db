@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import axios from 'axios'
-import { Search, Loader2 } from 'lucide-vue-next'
+import { Search, Loader2, Filter, Building2, Tag } from 'lucide-vue-next'
 import JobCard from './JobCard.vue'
 
 interface Job {
@@ -18,27 +18,37 @@ interface Job {
 const jobs = ref<Job[]>([])
 const loading = ref(true)
 const searchQuery = ref('')
-const activeTag = ref('Všechny pozice')
+const selectedTag = ref('Všechny tagy')
+const selectedCompany = ref('Všechny firmy')
 
-// Dynamicky extrahované kategorie/tagy
+// Dynamicky extrahované tagy
 const availableTags = computed(() => {
-  const tags = new Set<string>(['Všechny pozice'])
+  const tags = new Set<string>(['Všechny tagy'])
   jobs.value.forEach(job => {
     if (job.keywords) {
       job.keywords.split(',').forEach(k => {
-        const trimmed = k.trim()
-        if (trimmed && trimmed.length < 20) tags.add(trimmed)
+        const trimmed = k.trim().replace(/[\[\]\{\}]/g, '')
+        if (trimmed) tags.add(trimmed)
       })
     }
   })
-  // Vrátíme prvních 6 nejčastějších nebo zajímavých
-  return Array.from(tags).slice(0, 8)
+  return Array.from(tags).sort()
+})
+
+// Dynamicky extrahované firmy
+const availableCompanies = computed(() => {
+  const companies = new Set<string>(['Všechny firmy'])
+  jobs.value.forEach(job => {
+    if (job.company) companies.add(job.company)
+  })
+  return Array.from(companies).sort()
 })
 
 const fetchJobs = async () => {
   loading.value = true
   try {
     const response = await axios.get('/api/jobs')
+    // Zobrazujeme pouze pozice, které mají odkaz (validní inzeráty)
     jobs.value = response.data.filter((j: Job) => j.link)
   } catch (error) {
     console.error('Chyba při načítání pozic:', error)
@@ -54,56 +64,88 @@ const filteredJobs = computed(() => {
                          job.company.toLowerCase().includes(query) ||
                          (job.keywords && job.keywords.toLowerCase().includes(query))
     
-    const matchesTag = activeTag.value === 'Všechny pozice' || 
-                      (job.keywords && job.keywords.toLowerCase().includes(activeTag.value.toLowerCase()))
+    const matchesTag = selectedTag.value === 'Všechny tagy' || 
+                      (job.keywords && job.keywords.toLowerCase().includes(selectedTag.value.toLowerCase()))
     
-    return matchesSearch && matchesTag
+    const matchesCompany = selectedCompany.value === 'Všechny firmy' || 
+                          job.company === selectedCompany.value
+    
+    return matchesSearch && matchesTag && matchesCompany
   })
 })
+
+const resetFilters = () => {
+  searchQuery.value = ''
+  selectedTag.value = 'Všechny tagy'
+  selectedCompany.value = 'Všechny firmy'
+}
 
 onMounted(fetchJobs)
 </script>
 
 <template>
   <div class="max-w-5xl mx-auto px-4 py-12">
-    <!-- Header with Search and Categories -->
-    <div class="mb-12 space-y-10">
+    <!-- Header with Search and Dropdown Filters -->
+    <div class="mb-12 space-y-8">
       <div class="text-center md:text-left">
         <h1 class="text-5xl font-black text-[#002B5C] mb-3 tracking-tighter">Kariéra v AI</h1>
         <p class="text-gray-500 text-xl font-medium">Najděte svou příští výzvu v nejlepších českých AI firmách.</p>
       </div>
 
-      <div class="flex flex-col md:flex-row md:items-center justify-between gap-8 border-b border-gray-100 pb-2">
-        <!-- Categories (Tags) -->
-        <nav class="flex overflow-x-auto gap-8 no-scrollbar scroll-smooth">
-          <button 
-            v-for="tag in availableTags" 
-            :key="tag"
-            @click="activeTag = tag"
-            :class="[
-              'text-sm transition-all whitespace-nowrap pb-4 relative font-bold',
-              activeTag === tag 
-                ? 'text-[#002B5C]' 
-                : 'text-gray-400 hover:text-[#002B5C]'
-            ]"
-          >
-            {{ tag }}
-            <div v-if="activeTag === tag" class="absolute bottom-0 left-0 right-0 h-1 bg-[#002B5C] rounded-full"></div>
-          </button>
-        </nav>
-
-        <!-- Search Bar -->
-        <div class="relative w-full md:w-80 mb-4 md:mb-0">
-          <div class="absolute inset-y-0 left-4 flex items-center pointer-events-none">
-            <Search class="h-4 w-4 text-gray-400" />
+      <div class="bg-white p-2 rounded-3xl border border-gray-100 shadow-xl shadow-blue-900/5">
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-2">
+          <!-- Search Bar -->
+          <div class="md:col-span-5 relative">
+            <div class="absolute inset-y-0 left-4 flex items-center pointer-events-none text-gray-400">
+              <Search class="h-4 w-4" />
+            </div>
+            <input 
+              v-model="searchQuery"
+              type="text" 
+              class="block w-full pl-11 pr-4 py-4 bg-gray-50 border-none rounded-2xl text-sm placeholder-gray-400 focus:ring-2 focus:ring-[#002B5C]/10 transition-all"
+              placeholder="Pozice nebo technologie..."
+            >
           </div>
-          <input 
-            v-model="searchQuery"
-            type="text" 
-            class="block w-full pl-11 pr-4 py-3 bg-white border border-gray-200 rounded-full text-sm placeholder-gray-400 focus:outline-none focus:ring-4 focus:ring-blue-50 focus:border-[#002B5C] transition-all shadow-sm"
-            placeholder="Pozice, technologie nebo firma..."
-          >
+
+          <!-- Company Filter -->
+          <div class="md:col-span-3 relative">
+            <div class="absolute inset-y-0 left-4 flex items-center pointer-events-none text-gray-400">
+              <Building2 class="h-4 w-4" />
+            </div>
+            <select 
+              v-model="selectedCompany"
+              class="block w-full pl-11 pr-4 py-4 bg-gray-50 border-none rounded-2xl text-sm focus:ring-2 focus:ring-[#002B5C]/10 appearance-none transition-all cursor-pointer"
+            >
+              <option v-for="company in availableCompanies" :key="company" :value="company">{{ company }}</option>
+            </select>
+          </div>
+
+          <!-- Tag Filter -->
+          <div class="md:col-span-3 relative">
+            <div class="absolute inset-y-0 left-4 flex items-center pointer-events-none text-gray-400">
+              <Tag class="h-4 w-4" />
+            </div>
+            <select 
+              v-model="selectedTag"
+              class="block w-full pl-11 pr-4 py-4 bg-gray-50 border-none rounded-2xl text-sm focus:ring-2 focus:ring-[#002B5C]/10 appearance-none transition-all cursor-pointer"
+            >
+              <option v-for="tag in availableTags" :key="tag" :value="tag">{{ tag }}</option>
+            </select>
+          </div>
+
+          <!-- Reset/Count info -->
+          <div class="md:col-span-1 flex items-center justify-center">
+             <button @click="resetFilters" class="p-4 text-gray-400 hover:text-[#002B5C] transition-colors" title="Resetovat filtry">
+               <Filter class="h-5 w-5" />
+             </button>
+          </div>
         </div>
+      </div>
+      
+      <div v-if="!loading" class="flex justify-between items-center px-4">
+        <p class="text-xs font-black uppercase tracking-widest text-gray-400">
+          Nalezeno: <span class="text-[#002B5C]">{{ filteredJobs.length }} pozic</span>
+        </p>
       </div>
     </div>
 
@@ -127,9 +169,9 @@ onMounted(fetchJobs)
           <Search class="text-gray-300" :size="24" />
         </div>
         <p class="text-[#002B5C] font-black text-xl mb-2">Žádné pozice nenalezeny</p>
-        <p class="text-gray-500 max-w-xs mx-auto">Zkuste upravit vyhledávání nebo zvolit jinou kategorii technologií.</p>
-        <button @click="searchQuery = ''; activeTag = 'Všechny pozice'" class="mt-6 text-sm font-bold text-[#002B5C] hover:underline px-6 py-2 bg-white rounded-full shadow-sm border border-gray-100">
-          Zobrazit vše
+        <p class="text-gray-500 max-w-xs mx-auto">Zkuste upravit vyhledávání nebo zvolit jiný filtr.</p>
+        <button @click="resetFilters" class="mt-6 text-sm font-bold text-[#002B5C] hover:underline px-6 py-2 bg-white rounded-full shadow-sm border border-gray-100">
+          Zrušit filtry
         </button>
       </div>
     </div>
@@ -137,11 +179,8 @@ onMounted(fetchJobs)
 </template>
 
 <style scoped>
-.no-scrollbar::-webkit-scrollbar {
-  display: none;
-}
-.no-scrollbar {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
+/* Odstranění defaultního modrého zvýraznění na mobilu */
+select {
+  -webkit-tap-highlight-color: transparent;
 }
 </style>
