@@ -277,25 +277,24 @@ async def run_scrape(source_id: int, db: Session = Depends(get_db)):
     add_debug_log(f"Nalezeno {len(scraped)} odkazů. Provádím rychlou filtraci...")
     
     new_count = 0
-    skipped_count = 0
+    relevant_found = 0
     for i, item in enumerate(scraped):
         existing = db.query(Job).filter(Job.title == item['title'], Job.source_id == source.id).first()
-        if not existing:
+        if existing:
+            relevant_found += 1
+        else:
             # Rychlá AI filtrace před uložením
             if is_likely_job(item['title'], item.get('url', ''), api_key, model_name):
                 db.add(Job(title=item['title'], company=source.name, location=item.get('location'), raw_content=item.get('raw_content'), link=item.get('url'), source_id=source.id))
                 new_count += 1
-            else:
-                skipped_count += 1
-        else:
-            add_debug_log(f"   Duplicita: {item['title']}")
+                relevant_found += 1
                 
     source.last_crawled_at = datetime.utcnow()
     source.last_scrape_count = new_count
-    source.last_scrape_found = len(scraped)
+    source.last_scrape_found = relevant_found
     db.commit()
-    add_debug_log(f"Scraping hotov. Nových: {new_count}, Vyfiltrováno jako ne-job: {skipped_count}")
-    return {"new": new_count, "skipped": skipped_count, "total": len(scraped)}
+    add_debug_log(f"Scraping hotov. Relevantních celkem: {relevant_found}, z toho nových: {new_count}")
+    return {"new": new_count, "relevant": relevant_found, "total_raw": len(scraped)}
 
 frontend_dist = os.path.join(os.getcwd(), "frontend", "dist")
 if os.path.exists(frontend_dist):
