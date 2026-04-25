@@ -44,6 +44,8 @@ const showConfirmAnalysis = ref(false)
 const lastAnalysisResult = ref<{ count: number, deleted: number } | null>(null)
 const onlyNeedsAi = ref(false)
 
+// Pro jednoduchost jsou přihlašovací údaje zde, v reálu by se mohly brát z login formuláře
+// Tyto údaje musí odpovídat ADMIN_USERNAME a ADMIN_PASSWORD v .env souboru
 const adminAuth = { auth: { username: 'admin', password: 'admin123' } }
 
 const fetchData = async () => {
@@ -185,7 +187,23 @@ onUnmounted(() => clearInterval(logInterval))
 </script>
 
 <template>
-  <div class="space-y-6">
+  <div class="max-w-7xl mx-auto px-4 py-8 space-y-6">
+    <!-- Admin Header -->
+    <div class="flex items-center justify-between mb-8">
+      <div class="flex items-center gap-4">
+        <div class="w-10 h-10 bg-[#002B5C] rounded-lg flex items-center justify-center">
+          <span class="text-white font-black text-sm">ADM</span>
+        </div>
+        <div>
+          <h1 class="text-2xl font-black text-[#002B5C] tracking-tighter uppercase">Admin Rozhraní</h1>
+          <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Správa zdrojů a AI analýzy</p>
+        </div>
+      </div>
+      <router-link to="/" class="text-xs font-black text-gray-400 hover:text-[#002B5C] uppercase tracking-widest transition-colors flex items-center gap-2">
+        <ExternalLink :size="14" /> Zpět na web
+      </router-link>
+    </div>
+
     <!-- Top Stats / Actions -->
     <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
       <div class="flex flex-wrap items-center justify-between gap-6">
@@ -238,7 +256,7 @@ onUnmounted(() => clearInterval(logInterval))
 
     <div class="grid grid-cols-12 gap-8 items-start">
       <!-- Sources Column -->
-      <div class="col-span-12 lg:col-span-4 lg:sticky lg:top-24">
+      <div class="col-span-12 lg:col-span-4 lg:sticky lg:top-8">
         <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
           <div class="p-5 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
             <h2 class="font-black text-[#002B5C] uppercase tracking-widest text-xs">Zdroje</h2>
