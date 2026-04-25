@@ -15,7 +15,12 @@
 <body class="bg-light">
     <nav class="navbar navbar-dark bg-dark mb-4">
         <div class="container">
-            <span class="navbar-brand mb-0 h1">🚀 Job Scraper Pro</span>
+            <div class="d-flex align-items-center">
+                <span class="navbar-brand mb-0 h1">🚀 Job Scraper Pro</span>
+                <span class="badge {{ 'bg-info' if is_supabase else 'bg-secondary' }} ms-2" style="font-size: 0.7rem;">
+                    DB: {{ 'Supabase' if is_supabase else 'SQLite' }}
+                </span>
+            </div>
             <div class="d-flex align-items-center">
                 <span class="badge {{ 'bg-success' if has_gemini_key else 'bg-danger' }} me-3">
                     AI: {{ 'Aktivní' if has_gemini_key else 'Bez klíče' }}
