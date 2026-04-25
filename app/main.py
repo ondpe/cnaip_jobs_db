@@ -4,6 +4,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
+from sqlalchemy import not_
 from pydantic import BaseModel
 import os
 import logging
@@ -14,7 +15,7 @@ import google.generativeai as genai
 
 load_dotenv()
 
-from app.database import init_db, get_db
+from app.database import init_db, get_db, SessionLocal
 from app.models import Source, Job, Setting
 from app.scraper import scrape_source
 from app.analyzator import analyze_job_with_ai, last_logs, add_debug_log
@@ -57,9 +58,29 @@ def authenticate_admin(credentials: HTTPBasicCredentials = Depends(security)):
         )
     return credentials.username
 
+def cleanup_orphaned_jobs():
+    """Smaže pozice, které nepatří k žádnému existujícímu zdroji."""
+    db = SessionLocal()
+    try:
+        # Najdeme ID všech existujících zdrojů
+        source_ids = [s.id for s in db.query(Source.id).all()]
+        # Smažeme pozice, jejichž source_id není v seznamu existujících zdrojů
+        orphaned = db.query(Job).filter(not_(Job.source_id.in_(source_ids))).all()
+        if orphaned:
+            count = len(orphaned)
+            for job in orphaned:
+                db.delete(job)
+            db.commit()
+            logger.info(f"Vyčištěno {count} osiřelých pracovních pozic.")
+    except Exception as e:
+        logger.error(f"Chyba při čištění osiřelých pozic: {e}")
+    finally:
+        db.close()
+
 @app.on_event("startup")
 def startup_event():
     init_db()
+    cleanup_orphaned_jobs()
 
 @app.get("/api/jobs")
 def get_jobs(db: Session = Depends(get_db)):
@@ -81,6 +102,10 @@ def create_source(source_data: SourceCreate, db: Session = Depends(get_db)):
 def delete_source(source_id: int, db: Session = Depends(get_db)):
     source = db.query(Source).filter(Source.id == source_id).first()
     if not source: raise HTTPException(404, detail="Zdroj nenalezen")
+    
+    # Nejdříve smažeme všechny pozice navázané na tento zdroj
+    db.query(Job).filter(Job.source_id == source_id).delete()
+    
     db.delete(source)
     db.commit()
     return {"status": "deleted"}
