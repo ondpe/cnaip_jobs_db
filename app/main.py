@@ -10,6 +10,7 @@ import logging
 from typing import List, Optional
 from datetime import datetime
 from dotenv import load_dotenv
+import google.generativeai as genai
 
 load_dotenv()
 
@@ -87,12 +88,28 @@ def update_job(job_id: int, job_update: JobUpdate, db: Session = Depends(get_db)
 @app.get("/api/admin/settings/gemini-key", dependencies=[Depends(authenticate_admin)])
 def get_gemini_key(db: Session = Depends(get_db)):
     setting = db.query(Setting).filter(Setting.key == "gemini_api_key").first()
-    env_key = os.getenv("GEMINI_API_KEY")
-    return {"has_key": bool((setting and setting.value) or env_key)}
+    key_val = setting.value if setting else os.getenv("GEMINI_API_KEY")
+    
+    if not key_val:
+        return {"has_key": False, "masked_key": ""}
+    
+    # Zamaskujeme klíč pro UI (necháme první 4 a poslední 4 znaky)
+    masked = key_val[:4] + "...." + key_val[-4:] if len(key_val) > 8 else "****"
+    return {"has_key": True, "masked_key": masked}
 
 @app.post("/api/admin/settings/gemini-key", dependencies=[Depends(authenticate_admin)])
 def set_gemini_key(key: str, db: Session = Depends(get_db)):
-    logger.info(f"Ukládám AI klíč do DB (délka: {len(key)})")
+    # Validace klíče pokusem o inicializaci Gemini
+    try:
+        genai.configure(api_key=key)
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        # Zkusíme úplně minimální generování pro ověření klíče
+        model.generate_content("ping", generation_config={"max_output_tokens": 1})
+    except Exception as e:
+        logger.error(f"Neplatný AI klíč: {e}")
+        raise HTTPException(status_code=400, detail=f"AI klíč se nepodařilo ověřit: {str(e)}")
+
+    logger.info(f"Ukládám ověřený AI klíč do DB.")
     setting = db.query(Setting).filter(Setting.key == "gemini_api_key").first()
     if setting:
         setting.value = key
@@ -102,7 +119,6 @@ def set_gemini_key(key: str, db: Session = Depends(get_db)):
     return {"status": "ok"}
 
 def get_active_api_key(db: Session):
-    # Přednost má databáze (zadané přes UI), pak .env
     setting = db.query(Setting).filter(Setting.key == "gemini_api_key").first()
     if setting and setting.value and len(setting.value) > 5:
         return setting.value
@@ -111,7 +127,6 @@ def get_active_api_key(db: Session):
 @app.post("/api/admin/run-ai-analysis", dependencies=[Depends(authenticate_admin)])
 def run_analysis(db: Session = Depends(get_db)):
     api_key = get_active_api_key(db)
-    # Hledáme pozice, které buď nemají summary, nebo mají ten náš fallback text
     unprocessed = db.query(Job).filter(
         (Job.summary == "") | 
         (Job.summary == None) | 
@@ -127,7 +142,7 @@ def run_analysis(db: Session = Depends(get_db)):
         if not analysis.get("is_job", True):
             db.delete(job)
             deleted_count += 1
-        elif api_key: # Analyzujeme jen pokud máme klíč
+        elif api_key:
             job.keywords = analysis["keywords"]
             job.summary = f"{analysis['summary']} (Seniorita: {analysis['seniority']})"
             job.last_analyzed_at = datetime.utcnow()

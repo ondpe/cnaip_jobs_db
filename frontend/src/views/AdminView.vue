@@ -34,20 +34,17 @@ const selectedIds = ref<number[]>([])
 const searchQuery = ref('')
 const loading = ref(false)
 const hasAiKey = ref(false)
+const maskedKey = ref('')
 const showKeyModal = ref(false)
 const newAiKey = ref('')
+const keyError = ref('')
 const scrapingIds = ref<Set<number>>(new Set())
 const analyzingIds = ref<Set<number>>(new Set())
 
-// Analysis State
 const showConfirmAnalysis = ref(false)
 const lastAnalysisResult = ref<{ count: number, deleted: number } | null>(null)
-
-// Edit Modal
 const showEditModal = ref(false)
 const editingJob = ref<Partial<Job>>({})
-
-// Filter
 const onlyNeedsAi = ref(false)
 
 const adminAuth = { auth: { username: 'admin', password: 'admin123' } }
@@ -62,6 +59,7 @@ const fetchData = async () => {
     sources.value = srcRes.data
     jobs.value = jobRes.data
     hasAiKey.value = keyRes.data.has_key
+    maskedKey.value = keyRes.data.masked_key
   } catch (e) {
     console.error("Chyba při načítání dat", e)
   }
@@ -87,10 +85,18 @@ const saveEdit = async () => {
 
 const saveAiKey = async () => {
   if (!newAiKey.value) return
-  await axios.post(`/api/admin/settings/gemini-key?key=${newAiKey.value}`, {}, adminAuth)
-  newAiKey.value = ''
-  showKeyModal.value = false
-  fetchData()
+  keyError.value = ''
+  loading.value = true
+  try {
+    await axios.post(`/api/admin/settings/gemini-key?key=${newAiKey.value}`, {}, adminAuth)
+    newAiKey.value = ''
+    showKeyModal.value = false
+    await fetchData()
+  } catch (e: any) {
+    keyError.value = e.response?.data?.detail || 'Klíč se nepodařilo uložit.'
+  } finally {
+    loading.value = false
+  }
 }
 
 const filteredJobs = computed(() => {
@@ -99,10 +105,8 @@ const filteredJobs = computed(() => {
     const matchesSearch = j.title.toLowerCase().includes(q) || 
                          j.company.toLowerCase().includes(q) ||
                          (j.keywords && j.keywords.toLowerCase().includes(q))
-    
     const needsAi = !j.last_analyzed_at || !j.summary
     const matchesFilter = !onlyNeedsAi.value || needsAi
-    
     return matchesSearch && matchesFilter
   })
 })
@@ -155,7 +159,8 @@ onMounted(fetchData)
           <div class="flex items-center gap-3">
             <div :class="`w-3 h-3 rounded-full ${hasAiKey ? 'bg-green-500 shadow-lg shadow-green-200' : 'bg-red-500 shadow-lg shadow-red-200'}`"></div>
             <span class="text-sm font-bold text-[#002B5C] uppercase tracking-wider">AI Služba: {{ hasAiKey ? 'Aktivní' : 'Chybí klíč' }}</span>
-            <button @click="showKeyModal = true" class="p-1.5 hover:bg-gray-50 rounded-lg transition-colors">
+            <button @click="showKeyModal = true" class="p-1.5 hover:bg-gray-50 rounded-lg transition-colors flex items-center gap-2">
+              <span v-if="maskedKey" class="text-[10px] text-gray-400 font-mono">{{ maskedKey }}</span>
               <Key :size="16" class="text-gray-400" />
             </button>
           </div>
@@ -190,7 +195,6 @@ onMounted(fetchData)
             <button @click="showConfirmAnalysis = false" class="bg-gray-100 text-gray-500 px-4 py-1.5 rounded-lg text-xs font-black hover:bg-gray-200 transition-all">ZRUŠIT</button>
           </div>
 
-          <!-- Analysis Results -->
           <div v-if="lastAnalysisResult" class="text-[10px] font-bold uppercase tracking-widest animate-in fade-in duration-500">
             <span class="text-green-600 bg-green-50 px-2 py-1 rounded">Analyzováno: {{ lastAnalysisResult.count }}</span>
             <span class="text-red-600 bg-red-50 px-2 py-1 rounded ml-2">Smazáno (odpad): {{ lastAnalysisResult.deleted }}</span>
@@ -283,7 +287,6 @@ onMounted(fetchData)
               </div>
             </div>
 
-            <!-- Tags in Admin -->
             <div v-if="job.keywords" class="flex flex-wrap gap-1.5 mb-4">
               <span v-for="kw in job.keywords.split(',')" :key="kw" class="px-2 py-0.5 rounded bg-gray-50 text-gray-400 text-[9px] font-bold uppercase border border-gray-100">
                 {{ kw.trim() }}
@@ -305,9 +308,35 @@ onMounted(fetchData)
           <h3 class="font-black text-2xl text-[#002B5C] tracking-tight">Nastavení AI</h3>
           <button @click="showKeyModal = false" class="p-2 hover:bg-gray-100 rounded-full transition-colors"><X :size="24" /></button>
         </div>
-        <p class="text-gray-500 mb-6 text-sm">Vložte Google Gemini API klíč pro automatickou extrakci dovedností a shrnutí inzerátů.</p>
-        <input v-model="newAiKey" type="password" placeholder="AI Key..." class="w-full border-2 border-gray-100 rounded-2xl p-4 mb-6 focus:border-blue-200 focus:outline-none transition-all">
-        <button @click="saveAiKey" class="w-full bg-[#002B5C] text-white font-black py-4 rounded-2xl shadow-lg shadow-blue-100 hover:bg-blue-900 transition-all">ULOŽIT KLÍČ</button>
+        <p class="text-gray-500 mb-6 text-sm">Vložte Google Gemini API klíč. Systém ho při uložení okamžitě ověří.</p>
+        
+        <div class="space-y-4">
+          <div v-if="maskedKey && !newAiKey" class="px-4 py-3 bg-gray-50 rounded-2xl border border-gray-100 flex items-center justify-between">
+            <span class="text-sm font-mono text-gray-400">{{ maskedKey }}</span>
+            <span class="text-[9px] font-black text-green-600 bg-green-100 px-2 py-0.5 rounded uppercase">Uloženo</span>
+          </div>
+          
+          <input 
+            v-model="newAiKey" 
+            type="password" 
+            placeholder="Nový API klíč..." 
+            class="w-full border-2 border-gray-100 rounded-2xl p-4 focus:border-blue-200 focus:outline-none transition-all"
+            :disabled="loading"
+          >
+          
+          <div v-if="keyError" class="p-3 bg-red-50 text-red-600 text-xs rounded-xl font-medium border border-red-100 flex items-start gap-2">
+            <AlertCircle :size="16" class="shrink-0" /> {{ keyError }}
+          </div>
+        </div>
+
+        <button 
+          @click="saveAiKey" 
+          :disabled="loading || !newAiKey"
+          class="w-full mt-6 bg-[#002B5C] text-white font-black py-4 rounded-2xl shadow-lg shadow-blue-100 hover:bg-blue-900 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+        >
+          <RefreshCw v-if="loading" :size="20" class="animate-spin" />
+          {{ loading ? 'OVĚŘUJI...' : 'ULOŽIT A OVĚŘIT' }}
+        </button>
       </div>
     </div>
 
