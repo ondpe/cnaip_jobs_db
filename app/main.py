@@ -59,6 +59,21 @@ def get_sources(db: Session = Depends(get_db)):
 
 # --- ADMIN API (Zabezpečené) ---
 
+@app.get("/api/admin/settings/gemini-key", dependencies=[Depends(authenticate_admin)])
+def get_gemini_key(db: Session = Depends(get_db)):
+    setting = db.query(Setting).filter(Setting.key == "gemini_api_key").first()
+    return {"has_key": bool(setting and setting.value) or bool(os.getenv("GEMINI_API_KEY"))}
+
+@app.post("/api/admin/settings/gemini-key", dependencies=[Depends(authenticate_admin)])
+def set_gemini_key(key: str, db: Session = Depends(get_db)):
+    setting = db.query(Setting).filter(Setting.key == "gemini_api_key").first()
+    if setting:
+        setting.value = key
+    else:
+        db.add(Setting(key="gemini_api_key", value=key))
+    db.commit()
+    return {"status": "ok"}
+
 @app.post("/api/admin/sources", dependencies=[Depends(authenticate_admin)])
 def add_source(url: str, name: str, db: Session = Depends(get_db)):
     new_source = Source(url=url, name=name)
@@ -101,6 +116,21 @@ def run_analysis(db: Session = Depends(get_db)):
         job.last_analyzed_at = datetime.utcnow()
     db.commit()
     return {"count": len(unprocessed)}
+
+@app.post("/api/admin/analyze-job/{job_id}", dependencies=[Depends(authenticate_admin)])
+def analyze_single_job(job_id: int, db: Session = Depends(get_db)):
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job: raise HTTPException(404, detail="Pozice nenalezena")
+    
+    key_setting = db.query(Setting).filter(Setting.key == "gemini_api_key").first()
+    api_key = key_setting.value if key_setting else os.getenv("GEMINI_API_KEY")
+    
+    analysis = analyze_job_with_ai(job.raw_content, api_key)
+    job.keywords = analysis["keywords"]
+    job.summary = f"{analysis['summary']} (Seniorita: {analysis['seniority']})"
+    job.last_analyzed_at = datetime.utcnow()
+    db.commit()
+    return analysis
 
 # --- FRONTEND ---
 
