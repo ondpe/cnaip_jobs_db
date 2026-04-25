@@ -68,7 +68,8 @@ const filteredJobs = computed(() => {
   const q = searchQuery.value.toLowerCase()
   return jobs.value.filter(j => 
     j.title.toLowerCase().includes(q) || 
-    j.company.toLowerCase().includes(q)
+    j.company.toLowerCase().includes(q) ||
+    (j.keywords && j.keywords.toLowerCase().includes(q))
   )
 })
 
@@ -159,16 +160,24 @@ onMounted(fetchData)
         <div class="space-y-3 pb-20">
           <div v-for="job in filteredJobs" :key="job.id" class="bg-white p-5 rounded-xl border border-gray-200 shadow-sm hover:border-blue-200 group">
             <div class="flex justify-between items-start mb-3">
-              <div>
+              <div class="flex-1">
                 <div class="flex items-center gap-2">
                   <h3 class="font-bold text-lg text-gray-900">{{ job.title }}</h3>
                   <a v-if="job.link" :href="job.link" target="_blank" class="text-blue-500 hover:text-blue-700" title="Otevřít inzerát">
                     <ExternalLink :size="16" />
                   </a>
+                  <span v-else class="text-[10px] text-red-500 font-bold uppercase tracking-tight">Chybí odkaz</span>
                 </div>
                 <div class="flex gap-3 mt-1 text-sm text-gray-500">
                   <span class="flex items-center gap-1"><Briefcase :size="14" /> {{ job.company }}</span>
                   <span class="flex items-center gap-1"><MapPin :size="14" /> {{ job.location || 'Remote' }}</span>
+                </div>
+                
+                <!-- Keywords as tags in Admin -->
+                <div v-if="job.keywords" class="flex flex-wrap gap-1 mt-2">
+                  <span v-for="kw in job.keywords.split(',')" :key="kw" class="px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 text-[9px] font-bold uppercase border">
+                    {{ kw.trim() }}
+                  </span>
                 </div>
               </div>
               <div class="flex flex-col items-end gap-2">

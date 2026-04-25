@@ -25,7 +25,8 @@ const fetchJobs = async () => {
   loading.value = true
   try {
     const response = await axios.get('/api/jobs')
-    jobs.value = response.data
+    // Zobrazujeme pouze pozice, které mají odkaz
+    jobs.value = response.data.filter((j: Job) => j.link)
   } catch (error) {
     console.error('Chyba při načítání pozic:', error)
   } finally {
@@ -37,7 +38,8 @@ const filteredJobs = computed(() => {
   const query = searchQuery.value.toLowerCase()
   return jobs.value.filter(job => 
     job.title.toLowerCase().includes(query) || 
-    job.company.toLowerCase().includes(query)
+    job.company.toLowerCase().includes(query) ||
+    (job.keywords && job.keywords.toLowerCase().includes(query))
   )
 })
 
@@ -80,7 +82,7 @@ onMounted(fetchJobs)
             v-model="searchQuery"
             type="text" 
             class="block w-full pl-11 pr-4 py-2.5 bg-white border border-gray-200 rounded-full text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-[#002B5C] transition-all shadow-sm"
-            placeholder="Hledat pozici nebo firmu..."
+            placeholder="Pozice, firma nebo technologie..."
           >
         </div>
       </div>

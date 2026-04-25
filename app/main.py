@@ -81,14 +81,12 @@ async def run_scrape(source_id: int, db: Session = Depends(get_db)):
         title = item['title']
         link = item.get('url')
         
-        # Hledáme, jestli už pozice u tohoto zdroje existuje
         existing = db.query(Job).filter(Job.title == title, Job.source_id == source.id).first()
         
         if not existing:
-            # Nová pozice
             db.add(Job(
                 title=title, 
-                company=item.get('company'), 
+                company=source.name, # Název firmy bereme z názvu zdroje
                 location=item.get('location'), 
                 raw_content=item.get('raw_content'), 
                 link=link,
@@ -96,10 +94,9 @@ async def run_scrape(source_id: int, db: Session = Depends(get_db)):
             ))
             new_count += 1
         else:
-            # Existující pozice - pokud nemá link, doplníme ho
+            existing.company = source.name # Aktualizujeme i u stávajících
             if not existing.link and link:
                 existing.link = link
-                logger.info(f"Doplněn chybějící odkaz pro: {title}")
     
     source.last_crawled_at = datetime.utcnow()
     source.last_scrape_count = new_count

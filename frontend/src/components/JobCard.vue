@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { MapPin, Clock, ExternalLink, Cpu } from 'lucide-vue-next'
+import { MapPin, Clock, ExternalLink, Cpu, Tag } from 'lucide-vue-next'
 
 const props = defineProps<{
   job: {
@@ -22,6 +22,11 @@ const initials = computed(() => {
     .join('')
     .toUpperCase()
     .slice(0, 2)
+})
+
+const keywordList = computed(() => {
+  if (!props.job.keywords) return []
+  return props.job.keywords.split(',').map(k => k.trim()).filter(k => k)
 })
 
 const formatDate = (dateStr: string) => {
@@ -48,6 +53,13 @@ const formatDate = (dateStr: string) => {
       </div>
       <p class="text-md font-medium text-gray-700 mb-2">{{ job.company }}</p>
       
+      <!-- Keywords as tags -->
+      <div v-if="keywordList.length" class="flex flex-wrap gap-1 mb-3">
+        <span v-for="kw in keywordList" :key="kw" class="px-2 py-0.5 rounded bg-slate-50 text-slate-500 text-[10px] font-bold uppercase border border-slate-100">
+          {{ kw }}
+        </span>
+      </div>
+
       <!-- AI Summary snippet -->
       <div v-if="job.summary" class="flex items-center gap-2 text-xs text-gray-500 italic">
         <Cpu :size="12" class="text-purple-400" />
