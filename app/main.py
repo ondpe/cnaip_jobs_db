@@ -82,26 +82,51 @@ async def run_scrape(source_id: int, db: Session = Depends(get_db)):
         if not source: raise HTTPException(404, detail="Zdroj nenalezen")
         
         scraped = await scrape_source(source.url, source.name)
-        count = 0
+        
+        # Pokud se nic nenačetlo (např. chyba sítě), raději nic nemažeme
+        if not scraped:
+            return {"jobs_saved": 0, "jobs_found": 0, "message": "Nebyly nalezeny žádné pozice (možná chyba spojení)."}
+
+        found_titles = []
+        new_count = 0
+        
         for item in scraped:
-            # Kontrola duplicity
-            exists = db.query(Job).filter(Job.title == item['title'], Job.source_id == source.id).first()
-            if not exists:
+            title = item['title']
+            found_titles.append(title)
+            
+            # Kontrola, zda už pozici máme
+            existing_job = db.query(Job).filter(Job.title == title, Job.source_id == source.id).first()
+            
+            if existing_job:
+                # AKTUALIZACE: Přepíšeme základní data, ale zachováme AI (summary, keywords, last_analyzed_at)
+                existing_job.company = item.get('company')
+                existing_job.location = item.get('location')
+                existing_job.raw_content = item.get('raw_content')
+                # AI pole schválně neaktualizujeme, pokud už tam jsou
+            else:
+                # NOVÁ POZICE
                 db.add(Job(
-                    title=item['title'], 
+                    title=title, 
                     company=item.get('company'), 
                     location=item.get('location'), 
                     raw_content=item.get('raw_content'), 
                     source_id=source.id
                 ))
-                count += 1
+                new_count += 1
         
-        # Aktualizace času crawl a statistik
+        # SYNCHRONIZACE: Smažeme pozice, které už na webu nejsou
+        db.query(Job).filter(
+            Job.source_id == source.id, 
+            ~Job.title.in_(found_titles)
+        ).delete(synchronize_session=False)
+        
+        # Statistiky
         source.last_crawled_at = datetime.utcnow()
-        source.last_scrape_count = count
+        source.last_scrape_count = new_count
         source.last_scrape_found = len(scraped)
+        
         db.commit()
-        return {"jobs_saved": count, "jobs_found": len(scraped)}
+        return {"jobs_saved": new_count, "jobs_found": len(scraped)}
     except Exception as e:
         db.rollback()
         logger.error(f"Chyba při scrapování: {e}")
