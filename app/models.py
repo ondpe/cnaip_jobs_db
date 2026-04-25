@@ -19,6 +19,7 @@ class Source(Base):
     url = Column(String(500), nullable=False)
     name = Column(String(200), nullable=False)
     is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationship to jobs
     jobs = relationship("Job", back_populates="source")
