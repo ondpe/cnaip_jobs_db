@@ -92,7 +92,7 @@ def get_gemini_key(db: Session = Depends(get_db)):
 
 @app.post("/api/admin/settings/gemini-key", dependencies=[Depends(authenticate_admin)])
 def set_gemini_key(key: str, db: Session = Depends(get_db)):
-    logger.info(f"Pokus o uložení AI klíče (délka: {len(key)})")
+    logger.info(f"Ukládám AI klíč do DB (délka: {len(key)})")
     setting = db.query(Setting).filter(Setting.key == "gemini_api_key").first()
     if setting:
         setting.value = key
@@ -102,15 +102,22 @@ def set_gemini_key(key: str, db: Session = Depends(get_db)):
     return {"status": "ok"}
 
 def get_active_api_key(db: Session):
+    # Přednost má databáze (zadané přes UI), pak .env
     setting = db.query(Setting).filter(Setting.key == "gemini_api_key").first()
-    if setting and setting.value:
+    if setting and setting.value and len(setting.value) > 5:
         return setting.value
     return os.getenv("GEMINI_API_KEY")
 
 @app.post("/api/admin/run-ai-analysis", dependencies=[Depends(authenticate_admin)])
 def run_analysis(db: Session = Depends(get_db)):
     api_key = get_active_api_key(db)
-    unprocessed = db.query(Job).filter((Job.summary == "") | (Job.summary == None)).all()
+    # Hledáme pozice, které buď nemají summary, nebo mají ten náš fallback text
+    unprocessed = db.query(Job).filter(
+        (Job.summary == "") | 
+        (Job.summary == None) | 
+        (Job.summary.like("%Čeká na AI%"))
+    ).all()
+    
     deleted_count = 0
     analyzed_count = 0
     
@@ -120,7 +127,7 @@ def run_analysis(db: Session = Depends(get_db)):
         if not analysis.get("is_job", True):
             db.delete(job)
             deleted_count += 1
-        else:
+        elif api_key: # Analyzujeme jen pokud máme klíč
             job.keywords = analysis["keywords"]
             job.summary = f"{analysis['summary']} (Seniorita: {analysis['seniority']})"
             job.last_analyzed_at = datetime.utcnow()
@@ -142,10 +149,11 @@ def analyze_single_job(job_id: int, db: Session = Depends(get_db)):
         db.commit()
         return {"status": "deleted", "reason": "Not a job posting"}
         
-    job.keywords = analysis["keywords"]
-    job.summary = f"{analysis['summary']} (Seniorita: {analysis['seniority']})"
-    job.last_analyzed_at = datetime.utcnow()
-    db.commit()
+    if api_key:
+        job.keywords = analysis["keywords"]
+        job.summary = f"{analysis['summary']} (Seniorita: {analysis['seniority']})"
+        job.last_analyzed_at = datetime.utcnow()
+        db.commit()
     return analysis
 
 @app.post("/api/admin/scrape/{source_id}", dependencies=[Depends(authenticate_admin)])
