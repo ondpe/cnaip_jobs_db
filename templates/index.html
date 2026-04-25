@@ -113,14 +113,6 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
-                    <div class="mb-4">
-                        <label class="form-label fw-bold text-primary">Správa databáze</label>
-                        <p class="small text-muted">Pokud jste právě propojili Supabase, můžete sem přenést data z lokální SQLite.</p>
-                        <button id="migrateBtn" class="btn btn-warning btn-sm w-100" onclick="runMigration()">
-                            <i class="bi bi-database-fill-up"></i> Migrovat data do Supabase
-                        </button>
-                    </div>
-                    <hr>
                     <div class="mb-3">
                         <label class="form-label fw-bold">Google Gemini API Key</label>
                         <input type="password" id="geminiKeyInput" class="form-control" placeholder="Vložte svůj API klíč">
@@ -155,25 +147,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        async function runMigration() {
-            const btn = document.getElementById('migrateBtn');
-            if(!confirm('Opravdu chcete spustit migraci dat? Existující data v cíli nebudou přepsána.')) return;
-            
-            btn.disabled = true;
-            btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Migruji...';
-            
-            try {
-                const res = await fetch('/api/admin/migrate-db', { method: 'POST' });
-                const d = await res.json();
-                alert(d.message || d.detail);
-                location.reload();
-            } catch (e) {
-                alert('Chyba při migraci.');
-                btn.disabled = false;
-                btn.innerHTML = '<i class="bi bi-database-fill-up"></i> Migrovat data do Supabase';
-            }
-        }
-
         async function saveGeminiKey() {
             const key = document.getElementById('geminiKeyInput').value;
             if(!key) return alert('Zadejte klíč.');

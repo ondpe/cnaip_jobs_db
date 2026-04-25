@@ -10,7 +10,7 @@ import io
 from datetime import datetime
 from dotenv import load_dotenv
 
-# Načtení proměnných z .env (hledá v aktuálním i nadřazeném adresáři)
+# Načtení proměnných z .env
 load_dotenv()
 
 # Importy
@@ -18,14 +18,6 @@ from app.database import init_db, get_db
 from app.models import Source, Job, Setting
 from app.scraper import scrape_source
 from app.analyzator import analyze_job_with_ai
-
-# Import migrační logiky
-try:
-    import sys
-    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from migrate_data import migrate as run_db_migration
-except ImportError:
-    run_db_migration = None
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -42,16 +34,6 @@ def startup_event():
     if not os.path.exists("data"):
         os.makedirs("data")
     init_db()
-
-@app.get("/debug-env")
-def debug_env():
-    """Endpoint pro kontrolu dostupných environmentálních proměnných."""
-    return {
-        "keys": list(os.environ.keys()), 
-        "database_url_exists": bool(os.getenv("DATABASE_URL")),
-        "db_password_exists": bool(os.getenv("DB_PASSWORD")),
-        "env_file_exists": os.path.exists(".env")
-    }
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request, db: Session = Depends(get_db)):
@@ -74,16 +56,6 @@ async def index(request: Request, db: Session = Depends(get_db)):
         })
     except Exception as e:
         return HTMLResponse(f"<h1>Chyba</h1><p>{str(e)}</p>")
-
-@app.post("/api/admin/migrate-db")
-async def trigger_migration():
-    if not run_db_migration:
-        raise HTTPException(status_code=500, detail="Migrační skript nenalezen.")
-    try:
-        run_db_migration()
-        return {"message": "Migrace byla úspěšně spuštěna a dokončena."}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Migrace selhala: {str(e)}")
 
 @app.get("/export/jobs")
 def export_jobs(db: Session = Depends(get_db)):
