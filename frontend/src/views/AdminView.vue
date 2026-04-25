@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, onUnmounted } from 'vue'
+import { ref, onMounted, computed, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 import { 
@@ -99,15 +99,29 @@ const fetchLogs = async () => {
   } catch (e) { console.error("Chyba při načítání logů", e) }
 }
 
+const startLogPolling = () => {
+  if (logInterval) clearInterval(logInterval)
+  fetchLogs()
+  logInterval = setInterval(fetchLogs, 1000) // Zrychleno na 1 sekundu pro "real-time" pocit
+}
+
 const toggleLogs = () => {
   showLogs.value = !showLogs.value
   if (showLogs.value) {
-    fetchLogs()
-    logInterval = setInterval(fetchLogs, 3000)
+    startLogPolling()
   } else {
     clearInterval(logInterval)
+    logInterval = null
   }
 }
+
+// Pokud začne loading a logy nejsou zobrazené, automaticky je zobrazíme a zapneme polling
+watch(loading, (newVal) => {
+  if (newVal && !showLogs.value) {
+    showLogs.value = true
+    startLogPolling()
+  }
+})
 
 const addSource = async () => {
   const adminAuth = getAdminAuth()

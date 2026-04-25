@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 from sqlalchemy import not_
 from pydantic import BaseModel
@@ -91,7 +92,8 @@ def delete_source(source_id: int, db: Session = Depends(get_db)):
 
 @app.get("/api/admin/debug/logs", dependencies=[Depends(authenticate_admin)])
 def get_debug_logs():
-    return {"logs": last_logs}
+    # Vrátíme kopii, abychom se vyhnuli problémům s mutací během iterace
+    return {"logs": list(last_logs)}
 
 @app.delete("/api/admin/jobs/{job_id}", dependencies=[Depends(authenticate_admin)])
 def delete_job(job_id: int, db: Session = Depends(get_db)):
@@ -183,7 +185,9 @@ async def run_analysis(db: Session = Depends(get_db)):
                 job.raw_content = full_text
                 db.commit()
 
-        analysis = analyze_job_with_ai(job.raw_content or job.title, api_key, model_name)
+        # Spustíme synchronní AI volání v threadpoolu, aby neblokovalo event loop
+        analysis = await run_in_threadpool(analyze_job_with_ai, job.raw_content or job.title, api_key, model_name)
+        
         if not analysis.get("is_job", True):
             add_debug_log(f"   AI: Není to job, mažu.")
             db.delete(job)
@@ -219,7 +223,7 @@ async def bulk_analyze_jobs(action: BulkAction, db: Session = Depends(get_db)):
                 job.raw_content = full_text
                 db.commit()
 
-        analysis = analyze_job_with_ai(job.raw_content or job.title, api_key, model_name)
+        analysis = await run_in_threadpool(analyze_job_with_ai, job.raw_content or job.title, api_key, model_name)
         if not analysis.get("is_job", True):
             db.delete(job)
             deleted += 1
@@ -248,7 +252,7 @@ async def analyze_single_job(job_id: int, db: Session = Depends(get_db)):
             db.commit()
 
     api_key, model_name = get_ai_config(db)
-    analysis = analyze_job_with_ai(job.raw_content or job.title, api_key, model_name)
+    analysis = await run_in_threadpool(analyze_job_with_ai, job.raw_content or job.title, api_key, model_name)
     
     if not analysis.get("is_job", True):
         add_debug_log("   AI: Není to job, mažu.")
@@ -283,8 +287,9 @@ async def run_scrape(source_id: int, db: Session = Depends(get_db)):
         if existing:
             relevant_found += 1
         else:
-            # Rychlá AI filtrace před uložením
-            if is_likely_job(item['title'], item.get('url', ''), api_key, model_name):
+            # Rychlá AI filtrace (v threadpoolu)
+            is_job = await run_in_threadpool(is_likely_job, item['title'], item.get('url', ''), api_key, model_name)
+            if is_job:
                 db.add(Job(title=item['title'], company=source.name, location=item.get('location'), raw_content=item.get('raw_content'), link=item.get('url'), source_id=source.id))
                 new_count += 1
                 relevant_found += 1
