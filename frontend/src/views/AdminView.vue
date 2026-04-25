@@ -40,6 +40,7 @@ const scrapingIds = ref<Set<number>>(new Set())
 const analyzingIds = ref<Set<number>>(new Set())
 const deletingSourceId = ref<number | null>(null)
 const deletingJobId = ref<number | null>(null)
+const showBulkDeleteConfirm = ref(false)
 const showLogs = ref(false)
 const debugLogs = ref<string[]>([])
 let logInterval: any = null
@@ -144,11 +145,11 @@ const confirmDeleteJob = async (id: number) => {
 const bulkDeleteJobs = async () => {
   const adminAuth = getAdminAuth()
   if (!adminAuth || !selectedJobIds.value.length) return
-  if (!confirm(`Opravdu chcete smazat ${selectedJobIds.value.length} vybraných pozic?`)) return
   loading.value = true
   try {
     await axios.post('/api/admin/jobs/bulk-delete', { ids: selectedJobIds.value }, adminAuth)
     selectedJobIds.value = []
+    showBulkDeleteConfirm.value = false
     await fetchData()
   } finally { loading.value = false }
 }
@@ -488,17 +489,24 @@ onUnmounted(() => clearInterval(logInterval))
           </button>
         </div>
 
-        <div v-if="filteredJobs.length" class="bg-white p-3 rounded-2xl border border-gray-100 flex items-center justify-between shadow-sm">
-          <label class="flex items-center gap-2 text-[10px] font-black text-gray-400 uppercase tracking-widest cursor-pointer px-3">
-            <input type="checkbox" :checked="isAllJobsSelected" @change="toggleSelectAllJobs" class="rounded text-blue-600"> Vybrat vše
-          </label>
-          <div v-if="selectedJobIds.length" class="flex gap-2 animate-in fade-in slide-in-from-right-2">
-            <button @click="bulkAnalyzeJobs" class="text-[10px] font-black bg-purple-600 text-white px-3 py-1.5 rounded-lg hover:bg-purple-700 transition-all flex items-center gap-2">
-              <Cpu :size="12" /> ANALYZOVAT ({{ selectedJobIds.length }})
-            </button>
-            <button @click="bulkDeleteJobs" class="text-[10px] font-black bg-red-600 text-white px-3 py-1.5 rounded-lg hover:bg-red-700 transition-all flex items-center gap-2">
-              <Trash2 :size="12" /> SMAZAT ({{ selectedJobIds.length }})
-            </button>
+        <div v-if="filteredJobs.length" class="bg-white p-3 rounded-2xl border border-gray-100 flex flex-col shadow-sm">
+          <div class="flex items-center justify-between w-full">
+            <label class="flex items-center gap-2 text-[10px] font-black text-gray-400 uppercase tracking-widest cursor-pointer px-3">
+              <input type="checkbox" :checked="isAllJobsSelected" @change="toggleSelectAllJobs" class="rounded text-blue-600"> Vybrat vše
+            </label>
+            <div v-if="selectedJobIds.length && !showBulkDeleteConfirm" class="flex gap-2 animate-in fade-in slide-in-from-right-2">
+              <button @click="bulkAnalyzeJobs" class="text-[10px] font-black bg-purple-600 text-white px-3 py-1.5 rounded-lg hover:bg-purple-700 transition-all flex items-center gap-2">
+                <Cpu :size="12" /> ANALYZOVAT ({{ selectedJobIds.length }})
+              </button>
+              <button @click="showBulkDeleteConfirm = true" class="text-[10px] font-black bg-red-600 text-white px-3 py-1.5 rounded-lg hover:bg-red-700 transition-all flex items-center gap-2">
+                <Trash2 :size="12" /> SMAZAT ({{ selectedJobIds.length }})
+              </button>
+            </div>
+            <div v-if="showBulkDeleteConfirm" class="flex items-center gap-3 px-3 py-1 animate-in fade-in slide-in-from-right-4">
+              <span class="text-[10px] font-bold text-red-600 uppercase tracking-widest">Smazat {{ selectedJobIds.length }} pozic?</span>
+              <button @click="bulkDeleteJobs" :disabled="loading" class="bg-red-600 text-white px-3 py-1 rounded text-[10px] font-black hover:bg-red-700 disabled:opacity-50">ANO, SMAZAT</button>
+              <button @click="showBulkDeleteConfirm = false" class="bg-gray-100 text-gray-500 px-3 py-1 rounded text-[10px] font-black hover:bg-gray-200">ZRUŠIT</button>
+            </div>
           </div>
         </div>
 
