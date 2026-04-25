@@ -2,7 +2,6 @@ from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
-from sqlalchemy import text
 import os
 import logging
 import csv
@@ -31,8 +30,7 @@ except Exception:
 
 @app.on_event("startup")
 def startup_event():
-    if not os.path.exists("data"):
-        os.makedirs("data")
+    # Inicializace schématu v PostgreSQL
     init_db()
 
 @app.get("/", response_class=HTMLResponse)
@@ -42,20 +40,16 @@ async def index(request: Request, db: Session = Depends(get_db)):
         sources = db.query(Source).all()
         gemini_key = db.query(Setting).filter(Setting.key == "gemini_api_key").first()
         
-        # Získání URL aktuální databáze pro info v UI
-        db_url = str(db.get_bind().url)
-        is_supabase = "postgresql" in db_url or "supabase" in db_url
-        
         return templates.TemplateResponse("index.html", {
             "request": request,
             "jobs": jobs,
             "sources": sources,
             "count": len(jobs),
-            "is_supabase": is_supabase,
+            "is_supabase": True, # Nyní už používáme jen Supabase
             "has_gemini_key": bool(gemini_key and gemini_key.value)
         })
     except Exception as e:
-        return HTMLResponse(f"<h1>Chyba</h1><p>{str(e)}</p>")
+        return HTMLResponse(f"<h1>Chyba databáze</h1><p>Ujistěte se, že jsou správně nastaveny přihlašovací údaje k Supabase v .env.</p><p>Detaily: {str(e)}</p>")
 
 @app.get("/export/jobs")
 def export_jobs(db: Session = Depends(get_db)):

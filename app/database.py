@@ -1,40 +1,42 @@
 import os
+import logging
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from app.models import Base
 from dotenv import load_dotenv
 
-# Zajištění načtení proměnných
+logger = logging.getLogger(__name__)
 load_dotenv()
 
-# 1. Zkusíme vzít celou URL z prostředí
+# 1. Získání URL z prostředí
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 # 2. Fallback: Sestavení URL ze známého hosta a hesla (Supabase)
 if not DATABASE_URL:
     db_pass = os.getenv("DB_PASSWORD")
     if db_pass:
-        # Použití Pooler portu 6543 pro lepší kompatibilitu (často nutné u serverless/agentů)
+        # Použití Pooler portu 6543 pro lepší kompatibilitu
         DATABASE_URL = f"postgresql://postgres:{db_pass}@db.aoslyffxsmktzsrjakrb.supabase.co:6543/postgres"
 
-# 3. Finální fallback na lokální SQLite
 if not DATABASE_URL:
-    DATABASE_URL = "sqlite:///./data/jobs.db"
+    logger.error("CHYBA: Není nastavena proměnná DATABASE_URL ani DB_PASSWORD. Aplikace nebude fungovat.")
+    # V produkci bychom zde vyhodili chybu, pro teď necháme prázdné ať nespadne import
+    DATABASE_URL = "postgresql://user:pass@localhost/dbname"
 
-# Oprava prefixu pro SQLAlchemy
+# Oprava prefixu pro SQLAlchemy (supabase vrací postgres://, SQLAlchemy vyžaduje postgresql://)
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-# Vytvoření enginu
-engine_args = {}
-if "sqlite" in DATABASE_URL:
-    engine_args["connect_args"] = {"check_same_thread": False}
-
-engine = create_engine(DATABASE_URL, **engine_args)
+# Vytvoření enginu pro PostgreSQL
+engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def init_db():
-    Base.metadata.create_all(bind=engine)
+    try:
+        Base.metadata.create_all(bind=engine)
+        logger.info("Databázové schématu bylo inicializováno na Supabase.")
+    except Exception as e:
+        logger.error(f"Inicializace databáze selhala: {e}")
 
 def get_db():
     db = SessionLocal()
