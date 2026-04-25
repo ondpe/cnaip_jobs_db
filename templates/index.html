@@ -56,9 +56,12 @@
                             <div class="text-truncate" style="max-width: 65%;">
                                 <strong>{{ source.name }}</strong><br>
                                 <small class="text-muted d-block text-truncate">{{ source.url }}</small>
-                                <small class="text-info" style="font-size: 0.75rem;">
+                                <small class="text-info d-block" style="font-size: 0.75rem;">
                                     {% if source.last_crawled_at %}
                                     <i class="bi bi-clock"></i> {{ source.last_crawled_at.strftime('%d.%m %H:%M') }}
+                                    {% if source.last_scrape_found is not none %}
+                                    <br><span class="text-muted">Nalezeno {{ source.last_scrape_found }}, z toho {{ source.last_scrape_count }} nových</span>
+                                    {% endif %}
                                     {% else %}
                                     Nikdy neproběhlo
                                     {% endif %}
@@ -184,20 +187,27 @@
         async function scrapeSource(id) {
             const btn = event.currentTarget;
             btn.disabled = true;
+            const originalIcon = btn.innerHTML;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>';
+            
             const res = await fetch(`/scrape/${id}`, { method: 'POST' });
             if(res.ok) {
-                const d = await res.json();
-                alert(`Hotovo! Nalezeno ${d.jobs_found} inzerátů.`);
                 location.reload();
-            } else alert('Chyba při scrapování.');
+            } else {
+                alert('Chyba při scrapování.');
+                btn.disabled = false;
+                btn.innerHTML = originalIcon;
+            }
         }
 
         async function runAiAnalysis() {
+            const btn = event.currentTarget;
+            btn.disabled = true;
             const res = await fetch('/jobs/run-ai-analysis', { method: 'POST' });
             if(res.ok) {
-                const d = await res.json();
-                alert(d.message);
                 location.reload();
+            } else {
+                btn.disabled = false;
             }
         }
 

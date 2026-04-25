@@ -96,8 +96,10 @@ async def run_scrape(source_id: int, db: Session = Depends(get_db)):
                 ))
                 count += 1
         
-        # Aktualizace času crawl
+        # Aktualizace času crawl a statistik
         source.last_crawled_at = datetime.utcnow()
+        source.last_scrape_count = count
+        source.last_scrape_found = len(scraped)
         db.commit()
         return {"jobs_saved": count, "jobs_found": len(scraped)}
     except Exception as e:

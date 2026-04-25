@@ -21,6 +21,8 @@ class Source(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     last_crawled_at = Column(DateTime, nullable=True)
+    last_scrape_count = Column(Integer, nullable=True)
+    last_scrape_found = Column(Integer, nullable=True)
     
     # Relationship to jobs
     jobs = relationship("Job", back_populates="source")
