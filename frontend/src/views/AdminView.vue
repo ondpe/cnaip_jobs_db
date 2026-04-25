@@ -29,6 +29,7 @@ const newAiKey = ref('')
 const keyError = ref('')
 const scrapingIds = ref<Set<number>>(new Set())
 const analyzingIds = ref<Set<number>>(new Set())
+const deletingSourceId = ref<number | null>(null)
 const showLogs = ref(false)
 const debugLogs = ref<string[]>([])
 let logInterval: any = null
@@ -38,8 +39,6 @@ const newSource = ref({ name: '', url: '' })
 
 const showConfirmAnalysis = ref(false)
 const lastAnalysisResult = ref<{ count: number, deleted: number } | null>(null)
-const showEditModal = ref(false)
-const editingJob = ref<Partial<Job>>({})
 const onlyNeedsAi = ref(false)
 
 const adminAuth = { auth: { username: 'admin', password: 'admin123' } }
@@ -86,10 +85,13 @@ const addSource = async () => {
   } finally { loading.value = false }
 }
 
-const deleteSource = async (id: number) => {
-  if (!confirm('Opravdu smazat tento zdroj dat? Smažete i vazbu na jeho pozice.')) return
-  await axios.delete(`/api/admin/sources/${id}`, adminAuth)
-  fetchData()
+const confirmDeleteSource = async (id: number) => {
+  loading.value = true
+  try {
+    await axios.delete(`/api/admin/sources/${id}`, adminAuth)
+    deletingSourceId.value = null
+    await fetchData()
+  } finally { loading.value = false }
 }
 
 const saveAiKey = async () => {
@@ -240,7 +242,7 @@ onUnmounted(() => clearInterval(logInterval))
                       <button @click="scrapeSingle(source.id)" :disabled="scrapingIds.has(source.id)" class="p-1 text-blue-600 hover:bg-blue-50 rounded">
                         <RefreshCw :size="14" :class="{ 'animate-spin': scrapingIds.has(source.id) }" />
                       </button>
-                      <button @click="deleteSource(source.id)" class="p-1 text-red-400 hover:bg-red-50 rounded">
+                      <button @click="deletingSourceId = source.id" class="p-1 text-red-400 hover:bg-red-50 rounded">
                         <Trash2 :size="14" />
                       </button>
                     </div>
@@ -249,6 +251,15 @@ onUnmounted(() => clearInterval(logInterval))
                     <span class="flex items-center gap-1"><Clock :size="10" /> {{ formatDate(source.last_crawled_at) }}</span>
                     <span v-if="source.last_scrape_count" class="text-green-500 font-bold">+{{ source.last_scrape_count }}</span>
                     <span class="truncate max-w-[150px] italic">{{ source.url }}</span>
+                  </div>
+
+                  <!-- Inline deletion confirmation -->
+                  <div v-if="deletingSourceId === source.id" class="mt-3 p-3 bg-red-50 rounded-xl border border-red-100 animate-in fade-in slide-in-from-top-2">
+                    <p class="text-[10px] font-bold text-red-600 mb-2 uppercase tracking-widest">Smazat zdroj i všechny jeho pozice?</p>
+                    <div class="flex gap-2">
+                      <button @click="confirmDeleteSource(source.id)" :disabled="loading" class="bg-red-600 text-white px-3 py-1 rounded text-[10px] font-black hover:bg-red-700 disabled:opacity-50">ANO, SMAZAT</button>
+                      <button @click="deletingSourceId = null" class="bg-white border border-gray-200 text-gray-500 px-3 py-1 rounded text-[10px] font-black hover:bg-gray-50">ZRUŠIT</button>
+                    </div>
                   </div>
                 </div>
               </div>
