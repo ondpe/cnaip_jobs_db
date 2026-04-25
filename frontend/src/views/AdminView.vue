@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, onUnmounted } from 'vue'
+import { ref, onMounted, computed, onUnmounted, watch } from 'vue'
 import axios from 'axios'
 import { 
   Plus, Play, Cpu, Globe, Search, 
   RefreshCw, Clock, Briefcase, MapPin, 
-  Key, X, ExternalLink, Trash2, Edit3, Filter, CheckCircle2, AlertCircle, AlertTriangle, Terminal
+  Key, X, ExternalLink, Trash2, Edit3, Filter, CheckCircle2, AlertCircle, AlertTriangle, Terminal, ChevronRight
 } from 'lucide-vue-next'
 
 interface Source {
@@ -24,8 +24,11 @@ const searchQuery = ref('')
 const loading = ref(false)
 const hasAiKey = ref(false)
 const maskedKey = ref('')
+const currentModel = ref('')
 const showKeyModal = ref(false)
 const newAiKey = ref('')
+const availableModels = ref<any[]>([])
+const selectedModel = ref('gemini-1.5-flash')
 const keyError = ref('')
 const scrapingIds = ref<Set<number>>(new Set())
 const analyzingIds = ref<Set<number>>(new Set())
@@ -54,6 +57,10 @@ const fetchData = async () => {
     jobs.value = jobRes.data
     hasAiKey.value = keyRes.data.has_key
     maskedKey.value = keyRes.data.masked_key
+    currentModel.value = keyRes.data.model_name
+    if (!selectedModel.value || selectedModel.value === 'gemini-1.5-flash') {
+      selectedModel.value = keyRes.data.model_name
+    }
   } catch (e) { console.error("Chyba při načítání dat", e) }
 }
 
@@ -94,14 +101,31 @@ const confirmDeleteSource = async (id: number) => {
   } finally { loading.value = false }
 }
 
-const saveAiKey = async () => {
+const fetchAvailableModels = async () => {
   if (!newAiKey.value) return
   keyError.value = ''; loading.value = true
   try {
-    await axios.post(`/api/admin/settings/gemini-key?key=${newAiKey.value}`, {}, adminAuth)
-    newAiKey.value = ''; showKeyModal.value = false; await fetchData()
+    const res = await axios.get(`/api/admin/settings/list-models?key=${newAiKey.value}`, adminAuth)
+    availableModels.value = res.data
+    if (availableModels.value.length > 0) {
+      // Zkusíme předvybrat flash verzi, pokud existuje
+      const flash = availableModels.value.find(m => m.name.includes('flash'))
+      if (flash) selectedModel.value = flash.name
+      else selectedModel.value = availableModels.value[0].name
+    }
   } catch (e: any) {
-    keyError.value = e.response?.data?.detail || 'Klíč se nepodařilo uložit.'
+    keyError.value = e.response?.data?.detail || 'Nepodařilo se načíst seznam modelů. Zkontrolujte klíč.'
+  } finally { loading.value = false }
+}
+
+const saveAiSettings = async () => {
+  if (!newAiKey.value || !selectedModel.value) return
+  keyError.value = ''; loading.value = true
+  try {
+    await axios.post(`/api/admin/settings/gemini-key?key=${newAiKey.value}&model_name=${selectedModel.value}`, {}, adminAuth)
+    newAiKey.value = ''; availableModels.value = []; showKeyModal.value = false; await fetchData()
+  } catch (e: any) {
+    keyError.value = e.response?.data?.detail || 'Nastavení se nepodařilo uložit.'
   } finally { loading.value = false }
 }
 
@@ -168,9 +192,11 @@ onUnmounted(() => clearInterval(logInterval))
         <div class="flex items-center gap-8">
           <div class="flex items-center gap-3">
             <div :class="`w-3 h-3 rounded-full ${hasAiKey ? 'bg-green-500 shadow-lg shadow-green-200' : 'bg-red-500 shadow-lg shadow-red-200'}`"></div>
-            <span class="text-sm font-bold text-[#002B5C] uppercase tracking-wider">AI Služba: {{ hasAiKey ? 'Aktivní' : 'Chybí klíč' }}</span>
+            <div class="flex flex-col">
+              <span class="text-[10px] font-black text-gray-400 uppercase tracking-widest">AI Služba</span>
+              <span class="text-sm font-bold text-[#002B5C]">{{ hasAiKey ? currentModel : 'Chybí klíč' }}</span>
+            </div>
             <button @click="showKeyModal = true" class="p-1.5 hover:bg-gray-50 rounded-lg transition-colors flex items-center gap-2">
-              <span v-if="maskedKey" class="text-[10px] text-gray-400 font-mono">{{ maskedKey }}</span>
               <Key :size="16" class="text-gray-400" />
             </button>
           </div>
@@ -221,7 +247,6 @@ onUnmounted(() => clearInterval(logInterval))
             </button>
           </div>
           
-          <!-- Bulk actions for sources -->
           <div v-if="sources.length" class="px-5 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
             <label class="flex items-center gap-2 text-[10px] font-black text-gray-400 uppercase tracking-widest cursor-pointer">
               <input type="checkbox" :checked="isAllSourcesSelected" @change="toggleSelectAllSources" class="rounded text-blue-600"> Vybrat vše
@@ -253,11 +278,10 @@ onUnmounted(() => clearInterval(logInterval))
                     <span class="truncate max-w-[150px] italic">{{ source.url }}</span>
                   </div>
 
-                  <!-- Inline deletion confirmation -->
                   <div v-if="deletingSourceId === source.id" class="mt-3 p-3 bg-red-50 rounded-xl border border-red-100 animate-in fade-in slide-in-from-top-2">
-                    <p class="text-[10px] font-bold text-red-600 mb-2 uppercase tracking-widest">Smazat zdroj i všechny jeho pozice?</p>
+                    <p class="text-[10px] font-bold text-red-600 mb-2 uppercase tracking-widest">Smazat zdroj i pozice?</p>
                     <div class="flex gap-2">
-                      <button @click="confirmDeleteSource(source.id)" :disabled="loading" class="bg-red-600 text-white px-3 py-1 rounded text-[10px] font-black hover:bg-red-700 disabled:opacity-50">ANO, SMAZAT</button>
+                      <button @click="confirmDeleteSource(source.id)" :disabled="loading" class="bg-red-600 text-white px-3 py-1 rounded text-[10px] font-black hover:bg-red-700 disabled:opacity-50">SMAZAT</button>
                       <button @click="deletingSourceId = null" class="bg-white border border-gray-200 text-gray-500 px-3 py-1 rounded text-[10px] font-black hover:bg-gray-50">ZRUŠIT</button>
                     </div>
                   </div>
@@ -339,24 +363,49 @@ onUnmounted(() => clearInterval(logInterval))
       </div>
     </div>
 
-    <!-- Modal: AI Key -->
+    <!-- Modal: AI Settings -->
     <div v-if="showKeyModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-6 animate-in fade-in">
       <div class="bg-white rounded-3xl shadow-2xl max-w-md w-full p-8 border border-gray-100">
         <div class="flex justify-between items-center mb-6">
           <h3 class="font-black text-2xl text-[#002B5C]">Nastavení AI</h3>
           <button @click="showKeyModal = false" class="p-2 hover:bg-gray-100 rounded-full"><X :size="24" /></button>
         </div>
-        <div class="space-y-4">
-          <div v-if="maskedKey && !newAiKey" class="px-4 py-3 bg-gray-50 rounded-2xl border border-gray-100 flex items-center justify-between">
-            <span class="text-sm font-mono text-gray-400">{{ maskedKey }}</span>
-            <span class="text-[9px] font-black text-green-600 bg-green-100 px-2 py-0.5 rounded uppercase">Uloženo</span>
+        
+        <div class="space-y-6">
+          <!-- Step 1: API Key -->
+          <div>
+            <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Google AI API Klíč</label>
+            <div class="relative">
+              <input v-model="newAiKey" type="password" placeholder="Vložte API klíč..." class="w-full border-2 border-gray-100 rounded-2xl p-4 pr-12 focus:border-blue-200 outline-none" :disabled="loading">
+              <button @click="fetchAvailableModels" :disabled="loading || !newAiKey" class="absolute right-2 top-2 p-2 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100 transition-all disabled:opacity-50">
+                <ChevronRight :size="20" />
+              </button>
+            </div>
+            <p v-if="maskedKey" class="mt-2 text-[10px] text-gray-400 font-mono">Aktuální: {{ maskedKey }}</p>
           </div>
-          <input v-model="newAiKey" type="password" placeholder="Nový API klíč..." class="w-full border-2 border-gray-100 rounded-2xl p-4 focus:border-blue-200 outline-none" :disabled="loading">
-          <div v-if="keyError" class="p-3 bg-red-50 text-red-600 text-xs rounded-xl flex items-start gap-2"><AlertCircle :size="16" class="shrink-0" /> {{ keyError }}</div>
+
+          <!-- Step 2: Model Selection (Visible only after fetching) -->
+          <div v-if="availableModels.length > 0" class="animate-in slide-in-from-top-4">
+            <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Vyberte model</label>
+            <select v-model="selectedModel" class="w-full border-2 border-gray-100 rounded-2xl p-4 bg-white outline-none focus:border-blue-200">
+              <option v-for="m in availableModels" :key="m.name" :value="m.name">{{ m.display_name }} ({{ m.name }})</option>
+            </select>
+            <div class="mt-4 p-4 bg-blue-50 rounded-2xl border border-blue-100 flex items-start gap-3">
+              <AlertCircle :size="18" class="text-blue-600 shrink-0" />
+              <p class="text-[10px] text-blue-800 font-medium leading-relaxed">
+                Doporučujeme modely s příponou <span class="font-bold">flash</span> pro nejrychlejší a nejlevnější analýzu.
+              </p>
+            </div>
+          </div>
+
+          <div v-if="keyError" class="p-4 bg-red-50 text-red-600 text-xs rounded-2xl flex items-start gap-3 border border-red-100">
+            <AlertCircle :size="18" class="shrink-0" /> {{ keyError }}
+          </div>
+
+          <button v-if="availableModels.length > 0" @click="saveAiSettings" :disabled="loading || !selectedModel" class="w-full bg-[#002B5C] text-white font-black py-4 rounded-2xl shadow-lg hover:bg-blue-900 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+            <RefreshCw v-if="loading" :size="20" class="animate-spin" /> {{ loading ? 'UKLÁDÁM...' : 'DOKONČIT NASTAVENÍ' }}
+          </button>
         </div>
-        <button @click="saveAiKey" :disabled="loading || !newAiKey" class="w-full mt-6 bg-[#002B5C] text-white font-black py-4 rounded-2xl shadow-lg hover:bg-blue-900 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
-          <RefreshCw v-if="loading" :size="20" class="animate-spin" /> {{ loading ? 'OVĚŘUJI...' : 'ULOŽIT A OVĚŘIT' }}
-        </button>
       </div>
     </div>
   </div>

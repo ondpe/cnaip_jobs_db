@@ -5,7 +5,6 @@ import google.generativeai as genai
 
 logger = logging.getLogger(__name__)
 
-# Globální buffer pro poslední logy, abychom je mohli poslat do UI
 last_logs = []
 
 def add_debug_log(msg):
@@ -17,22 +16,21 @@ def add_debug_log(msg):
         last_logs.pop(0)
     logger.info(f"[AI DEBUG] {msg}")
 
-def analyze_job_with_ai(text: str, api_key: str = None):
+def analyze_job_with_ai(text: str, api_key: str = None, model_name: str = "gemini-1.5-flash"):
     """
     Analyzuje text inzerátu pomocí Gemini.
     """
     if not text or len(text.strip()) < 25:
-        add_debug_log("Text je příliš krátký, přeskakuji.")
         return {"is_job": False, "summary": "Příliš krátký text."}
 
     if not api_key:
-        add_debug_log("CHYBA: API klíč nebyl předán analyzátoru!")
-        return {"is_job": True, "keywords": "", "seniority": "", "summary": "Chybí API klíč."}
+        add_debug_log("CHYBA: API klíč nebyl předán!")
+        return {"is_job": True, "summary": "Chybí API klíč."}
 
     try:
-        add_debug_log(f"Volám Gemini 1.5 Flash (klíč: {api_key[:4]}...{api_key[-4:]}) pro text délky {len(text)}")
+        add_debug_log(f"Volám {model_name} pro text délky {len(text)}")
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel(model_name)
         
         prompt = f"""
         Jsi expert na nábor v IT. Analyzuj text a rozhodni, zda jde o konkrétní pracovní inzerát.
@@ -55,7 +53,7 @@ def analyze_job_with_ai(text: str, api_key: str = None):
             cleaned = cleaned[start:end]
         
         data = json.loads(cleaned)
-        add_debug_log(f"AI úspěšně analyzovala pozici. is_job={data.get('is_job')}")
+        add_debug_log(f"AI analýza hotova (model: {model_name}). is_job={data.get('is_job')}")
         return {
             "is_job": data.get("is_job", True),
             "keywords": data.get("keywords", ""),
@@ -63,5 +61,5 @@ def analyze_job_with_ai(text: str, api_key: str = None):
             "summary": data.get("summary", "Pozice v oblasti AI.")
         }
     except Exception as e:
-        add_debug_log(f"KRITICKÁ CHYBA GEMINI: {str(e)}")
-        return {"is_job": True, "summary": f"Chyba AI: {str(e)}"}
+        add_debug_log(f"KRITICKÁ CHYBA GEMINI ({model_name}): {str(e)}")
+        return {"is_job": True, "summary": f"Chyba AI ({model_name}): {str(e)}"}
