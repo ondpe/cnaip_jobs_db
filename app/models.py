@@ -5,6 +5,11 @@ from datetime import datetime
 
 Base = declarative_base()
 
+class Setting(Base):
+    """Table for application settings (like API keys)"""
+    __tablename__ = "settings"
+    key = Column(String(100), primary_key=True)
+    value = Column(String(500))
 
 class Source(Base):
     """Table for storing job scraping sources"""
@@ -17,10 +22,6 @@ class Source(Base):
     
     # Relationship to jobs
     jobs = relationship("Job", back_populates="source")
-    
-    def __repr__(self):
-        return f"<Source(name={self.name}, url={self.url}, is_active={self.is_active})>"
-
 
 class Job(Base):
     """Table for storing scraped job postings"""
@@ -30,7 +31,7 @@ class Job(Base):
     title = Column(String(300), nullable=False)
     company = Column(String(200))
     location = Column(String(200))
-    keywords = Column(String(500))  # Comma-separated keywords
+    keywords = Column(String(500))
     summary = Column(Text)
     raw_content = Column(Text)
     source_id = Column(Integer, ForeignKey("sources.id"), nullable=False)
@@ -38,6 +39,3 @@ class Job(Base):
     
     # Relationship to source
     source = relationship("Source", back_populates="jobs")
-    
-    def __repr__(self):
-        return f"<Job(title={self.title}, company={self.company}, location={self.location})>"

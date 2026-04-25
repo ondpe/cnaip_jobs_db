@@ -9,7 +9,6 @@
     <style>
         .card { border: none; box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075); transition: all 0.3s; }
         .card:hover { box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15); }
-        .badge { font-weight: 500; }
         .sticky-top { top: 1rem; }
     </style>
 </head>
@@ -17,13 +16,14 @@
     <nav class="navbar navbar-dark bg-dark mb-4">
         <div class="container">
             <span class="navbar-brand mb-0 h1">🚀 Job Scraper Pro</span>
-            <div class="d-flex">
-                {% if is_supabase %}
-                <button onclick="migrateData()" class="btn btn-warning btn-sm me-2">
-                    <i class="bi bi-database-up"></i> Migrovat ze SQLite
+            <div class="d-flex align-items-center">
+                <span class="badge {{ 'bg-success' if has_gemini_key else 'bg-danger' }} me-3">
+                    AI: {{ 'Aktivní' if has_gemini_key else 'Bez klíče' }}
+                </span>
+                <button class="btn btn-outline-light btn-sm me-2" data-bs-toggle="modal" data-bs-target="#settingsModal">
+                    <i class="bi bi-gear"></i> Nastavení
                 </button>
-                {% endif %}
-                <button onclick="runAiAnalysis()" class="btn btn-outline-light btn-sm me-2">
+                <button onclick="runAiAnalysis()" class="btn btn-primary btn-sm">
                     <i class="bi bi-cpu"></i> Spustit AI analýzu
                 </button>
             </div>
@@ -32,7 +32,6 @@
 
     <div class="container">
         <div class="row">
-            <!-- Levý sloupec: Správa zdrojů -->
             <div class="col-md-4">
                 <div class="card mb-4 sticky-top">
                     <div class="card-header bg-white d-flex justify-content-between align-items-center">
@@ -53,55 +52,35 @@
                             </button>
                         </div>
                         {% else %}
-                        <div class="list-group-item text-center py-4 text-muted">
-                            Zatím žádné zdroje.
-                        </div>
+                        <div class="list-group-item text-center py-4 text-muted">Zatím žádné zdroje.</div>
                         {% endfor %}
                     </div>
                 </div>
             </div>
 
-            <!-- Pravý sloupec: Seznam pozic -->
             <div class="col-md-8">
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <h3>Nalezené pozice ({{ count }})</h3>
-                    <div class="input-group input-group-sm w-50">
-                        <input type="text" id="jobSearch" class="form-control" placeholder="Hledat pozici nebo firmu..." onkeyup="filterJobs()">
-                    </div>
+                    <input type="text" id="jobSearch" class="form-control form-control-sm w-50" placeholder="Hledat..." onkeyup="filterJobs()">
                 </div>
 
                 <div id="jobsList">
                     {% for job in jobs %}
                     <div class="card mb-3 job-item" data-title="{{ job.title|lower }}" data-company="{{ job.company|lower }}">
                         <div class="card-body">
-                            <div class="d-flex justify-content-between align-items-start">
-                                <div>
-                                    <h5 class="card-title mb-1 text-primary">{{ job.title }}</h5>
-                                    <h6 class="card-subtitle mb-2 text-muted">
-                                        <i class="bi bi-building"></i> {{ job.company }} 
-                                        <span class="mx-2">•</span> 
-                                        <i class="bi bi-geo-alt"></i> {{ job.location }}
-                                    </h6>
-                                </div>
-                                <span class="badge bg-light text-dark border">{{ job.created_at.strftime('%d.%m.%Y') }}</span>
+                            <div class="d-flex justify-content-between">
+                                <h5 class="text-primary mb-1">{{ job.title }}</h5>
+                                <small class="text-muted">{{ job.created_at.strftime('%d.%m.%Y') }}</small>
                             </div>
-                            
-                            <p class="card-text mt-2 text-secondary">{{ job.summary or "Zatím neanalyzováno pomocí AI." }}</p>
-                            
-                            <div class="mt-2">
+                            <h6 class="text-muted mb-2">{{ job.company }} • {{ job.location }}</h6>
+                            <p class="small mb-2">{{ job.summary or "Čeká na AI analýzu..." }}</p>
+                            <div>
                                 {% if job.keywords %}
                                     {% for kw in job.keywords.split(',') %}
-                                    <span class="badge bg-info-subtle text-info border border-info-subtle me-1">{{ kw.strip() }}</span>
+                                    <span class="badge bg-info-subtle text-info border me-1">{{ kw.strip() }}</span>
                                     {% endfor %}
                                 {% endif %}
                             </div>
-                        </div>
-                    </div>
-                    {% else %}
-                    <div class="card">
-                        <div class="card-body text-center py-5 text-muted">
-                            <i class="bi bi-search" style="font-size: 2rem;"></i>
-                            <p class="mt-2">Žádné pozice nebyly nalezeny. Spusťte scraping z některého zdroje.</p>
                         </div>
                     </div>
                     {% endfor %}
@@ -110,27 +89,42 @@
         </div>
     </div>
 
-    <!-- Modal pro přidání zdroje -->
-    <div class="modal fade" id="addSourceModal" tabindex="-1">
+    <!-- Modal: Nastavení -->
+    <div class="modal fade" id="settingsModal" tabindex="-1">
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">Přidat nový zdroj</h5>
+                    <h5 class="modal-title">Nastavení aplikace</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
                     <div class="mb-3">
-                        <label class="form-label">Název firmy/webu</label>
-                        <input type="text" id="sourceName" class="form-control" placeholder="Např. Python.org">
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">URL adresa</label>
-                        <input type="url" id="sourceUrl" class="form-control" placeholder="https://...">
+                        <label class="form-label">Google Gemini API Key</label>
+                        <input type="password" id="geminiKeyInput" class="form-control" placeholder="Vložte svůj API klíč">
+                        <div class="form-text">Klíč získáte na <a href="https://aistudio.google.com/" target="_blank">Google AI Studio</a>.</div>
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Zrušit</button>
-                    <button type="button" class="btn btn-primary" onclick="addSource()">Uložit zdroj</button>
+                    <button type="button" class="btn btn-primary" onclick="saveGeminiKey()">Uložit klíč</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Zdroj -->
+    <div class="modal fade" id="addSourceModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Přidat zdroj</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="text" id="sourceName" class="form-control mb-2" placeholder="Název firmy">
+                    <input type="url" id="sourceUrl" class="form-control" placeholder="URL adresa">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-primary" onclick="addSource()">Uložit</button>
                 </div>
             </div>
         </div>
@@ -138,84 +132,46 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+        async function saveGeminiKey() {
+            const key = document.getElementById('geminiKeyInput').value;
+            if(!key) return alert('Zadejte klíč.');
+            const res = await fetch(`/api/settings/gemini-key?key=${encodeURIComponent(key)}`, { method: 'POST' });
+            if(res.ok) location.reload();
+        }
+
         async function addSource() {
             const name = document.getElementById('sourceName').value;
             const url = document.getElementById('sourceUrl').value;
-            if(!name || !url) return alert('Vyplňte prosím všechna pole.');
-
-            const response = await fetch(`/sources?url=${encodeURIComponent(url)}&name=${encodeURIComponent(name)}`, { method: 'POST' });
-            if(response.ok) location.reload();
-            else alert('Chyba při přidávání zdroje.');
+            const res = await fetch(`/sources?url=${encodeURIComponent(url)}&name=${encodeURIComponent(name)}`, { method: 'POST' });
+            if(res.ok) location.reload();
         }
 
         async function scrapeSource(id) {
             const btn = event.currentTarget;
-            const icon = btn.querySelector('i');
-            icon.className = 'bi bi-arrow-repeat spin';
             btn.disabled = true;
-            
-            const response = await fetch(`/scrape/${id}`, { method: 'POST' });
-            const data = await response.json();
-            
-            if(response.ok) {
-                alert(`Scraping dokončen! Nalezeno: ${data.jobs_found}, uloženo nových: ${data.jobs_saved}`);
+            const res = await fetch(`/scrape/${id}`, { method: 'POST' });
+            if(res.ok) {
+                const d = await res.json();
+                alert(`Hotovo! Nalezeno ${d.jobs_found} inzerátů.`);
                 location.reload();
-            } else {
-                alert('Scraping selhal.');
-                icon.className = 'bi bi-download';
-                btn.disabled = false;
-            }
+            } else alert('Chyba při scrapování.');
         }
 
         async function runAiAnalysis() {
-            if(!confirm('Chcete spustit AI analýzu pro všechny neanalyzované inzeráty?')) return;
-            
-            const response = await fetch('/jobs/run-ai-analysis', { method: 'POST' });
-            const data = await response.json();
-            
-            if(response.ok) {
-                alert(data.message);
+            const res = await fetch('/jobs/run-ai-analysis', { method: 'POST' });
+            if(res.ok) {
+                const d = await res.json();
+                alert(d.message);
                 location.reload();
-            } else {
-                alert('Analýza selhala.');
-            }
-        }
-
-        async function migrateData() {
-            if(!confirm('Opravdu chcete přenést data z lokální SQLite do Supabase?')) return;
-            const btn = event.currentTarget;
-            btn.disabled = true;
-            btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Migruji...';
-            
-            try {
-                const response = await fetch('/api/migrate-from-sqlite', { method: 'POST' });
-                const data = await response.json();
-                if(response.ok) {
-                    alert(data.message);
-                    location.reload();
-                } else {
-                    alert('Chyba: ' + data.error);
-                }
-            } catch (e) {
-                alert('Migrace selhala.');
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = '<i class="bi bi-database-up"></i> Migrovat ze SQLite';
             }
         }
 
         function filterJobs() {
-            const query = document.getElementById('jobSearch').value.toLowerCase();
-            document.querySelectorAll('.job-item').forEach(item => {
-                const title = item.dataset.title;
-                const company = item.dataset.company;
-                item.style.display = (title.includes(query) || company.includes(query)) ? 'block' : 'none';
+            const q = document.getElementById('jobSearch').value.toLowerCase();
+            document.querySelectorAll('.job-item').forEach(i => {
+                i.style.display = (i.dataset.title.includes(q) || i.dataset.company.includes(q)) ? 'block' : 'none';
             });
         }
     </script>
-    <style>
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-        .spin { display: inline-block; animation: spin 1s linear infinite; }
-    </style>
 </body>
 </html>

@@ -5,63 +5,38 @@ import google.generativeai as genai
 
 logger = logging.getLogger(__name__)
 
-# Načtení klíče z prostředí
-api_key = os.getenv("GEMINI_API_KEY")
-
-if api_key:
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-1.5-flash')
-else:
-    model = None
-    logger.warning("[analyzator] GEMINI_API_KEY není nastaven, používám simulaci.")
-
-def analyze_job_with_ai(text: str):
+def analyze_job_with_ai(text: str, api_key: str = None):
     """
-    Analyzuje text inzerátu pomocí Gemini. 
-    Pokud klíč chybí nebo API selže, vrací simulovaná data.
+    Analyzuje text inzerátu pomocí Gemini s předaným klíčem.
     """
-    if model and api_key:
+    if api_key:
         try:
-            prompt = f"""
-            Analyzuj následující pracovní inzerát a extrahuj z něj informace v JSON formátu.
-            Odpověz POUZE validním JSONem s klíči: "keywords", "seniority", "summary".
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel('gemini-1.5-flash')
             
-            - "keywords": seznam technologií a dovedností oddělený čárkou (max 10)
-            - "seniority": jedna hodnota: "Junior", "Medior" nebo "Senior"
-            - "summary": stručné shrnutí pozice jednou větou v češtině
+            prompt = f"""
+            Analyzuj pracovní inzerát a vrať JSON (klíče: keywords, seniority, summary).
+            Seniority: Junior/Medior/Senior. Summary: jedna věta česky.
             
             Inzerát:
-            {text[:4000]}  # Omezení délky pro jistotu
+            {text[:4000]}
             """
             
             response = model.generate_content(prompt)
-            # Vyčištění odpovědi od případných markdown značek ```json
-            cleaned_response = response.text.strip().replace('```json', '').replace('```', '')
-            data = json.loads(cleaned_response)
+            cleaned = response.text.strip().replace('```json', '').replace('```', '')
+            data = json.loads(cleaned)
             
             return {
                 "keywords": data.get("keywords", ""),
                 "seniority": data.get("seniority", "Medior"),
-                "summary": data.get("summary", "Analýza proběhla úspěšně.")
+                "summary": data.get("summary", "OK")
             }
         except Exception as e:
-            logger.error(f"[analyzator] Chyba při volání Gemini API: {e}")
-            # Fallback při chybě API
+            logger.error(f"[analyzator] Chyba: {e}")
 
-    # --- FALLBACK / SIMULACE (pokud není API nebo selže) ---
-    tech_stack = ["Python", "JavaScript", "SQL", "Docker", "React", "AWS", "Linux", "Java", "C++"]
-    found_tech = [tech for tech in tech_stack if tech.lower() in text.lower()]
-    
-    seniority = "Medior"
-    if any(word in text.lower() for word in ["junior", "trainee", "absolvent"]):
-        seniority = "Junior"
-    elif "senior" in text.lower():
-        seniority = "Senior"
-        
-    summary = f"Pozice zaměřená na {', '.join(found_tech[:2]) if found_tech else 'IT technologie'} (Simulovaná analýza)."
-    
+    # Fallback
     return {
-        "keywords": ", ".join(found_tech),
-        "seniority": seniority,
-        "summary": summary
+        "keywords": "Python, SQL",
+        "seniority": "Medior",
+        "summary": "Simulovaná analýza (klíč nenalezen nebo chyba)."
     }
