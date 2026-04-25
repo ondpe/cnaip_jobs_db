@@ -47,8 +47,6 @@ const showBulkDeleteConfirm = ref(false)
 const showLogs = ref(false)
 const debugLogs = ref<string[]>([])
 const currentActivity = ref<string | null>(null)
-let logInterval: any = null
-let statusInterval: any = null
 
 const newSource = ref({ name: '', url: '' })
 const newCreds = ref({ username: '', password: '' })
@@ -133,40 +131,27 @@ const fetchStatus = async () => {
   } catch (e) {}
 }
 
+// Polling byl na žádost uživatele odstraněn. 
+// Funkce nyní pouze jednorázově načtou data.
 const startStatusPolling = () => {
-  if (statusInterval) clearInterval(statusInterval)
   fetchStatus()
-  statusInterval = setInterval(fetchStatus, 5000) 
 }
 
 const startLogPolling = () => {
-  if (logInterval) return 
   fetchLogs()
-  logInterval = setInterval(fetchLogs, 5000) 
-}
-
-const stopLogPolling = () => {
-  if (logInterval) {
-    clearInterval(logInterval)
-    logInterval = null
-  }
 }
 
 watch(currentActivity, (newVal) => {
   if (newVal) {
-    startLogPolling()
+    fetchLogs()
     if (!showLogs.value) showLogs.value = true 
-  } else if (!showLogs.value) {
-    stopLogPolling()
   }
 })
 
 const toggleLogs = () => {
   showLogs.value = !showLogs.value
   if (showLogs.value) {
-    startLogPolling()
-  } else if (!currentActivity.value) {
-    stopLogPolling()
+    fetchLogs()
   }
 }
 
@@ -350,12 +335,7 @@ const formatDate = (d: string | null) => d ? new Date(d).toLocaleString('cs-CZ',
 
 onMounted(() => {
   fetchData()
-  startStatusPolling() 
-})
-
-onUnmounted(() => { 
-  clearInterval(logInterval)
-  clearInterval(statusInterval) 
+  fetchStatus() 
 })
 </script>
 
@@ -492,7 +472,7 @@ onUnmounted(() => {
         <div v-for="(log, idx) in debugLogs" :key="idx" class="mb-1">
           <span class="text-gray-600">>>></span> {{ log }}
         </div>
-        <div v-if="!debugLogs.length" class="italic text-gray-600">Čekám na data z backendu...</div>
+        <div v-if="!debugLogs.length" class="italic text-gray-600">Žádné logy k zobrazení.</div>
       </div>
     </div>
 
