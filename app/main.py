@@ -42,14 +42,22 @@ class SourceCreate(BaseModel):
 class BulkAction(BaseModel):
     ids: List[int]
 
-def authenticate_admin(credentials: HTTPBasicCredentials = Depends(security)):
-    admin_user = os.getenv("ADMIN_USERNAME", "admin")
-    admin_pass = os.getenv("ADMIN_PASSWORD", "admin123")
+class CredentialsUpdate(BaseModel):
+    username: str
+    password: str
+
+def authenticate_admin(credentials: HTTPBasicCredentials = Depends(security), db: Session = Depends(get_db)):
+    # Nejprve zkusíme databázi
+    db_user = db.query(Setting).filter(Setting.key == "admin_username").first()
+    db_pass = db.query(Setting).filter(Setting.key == "admin_password").first()
+    
+    admin_user = db_user.value if db_user else os.getenv("ADMIN_USERNAME", "admin")
+    admin_pass = db_pass.value if db_pass else os.getenv("ADMIN_PASSWORD", "admin123")
+    
     if credentials.username != admin_user or credentials.password != admin_pass:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Neplatné přihlašovací údaje",
-            # Odstraněna hlavička WWW-Authenticate, aby prohlížeč nevyhazoval svůj login
+            detail="Neplatné přihlašovací údaje"
         )
     return credentials.username
 
@@ -138,6 +146,15 @@ def set_gemini_key(key: str, model_name: Optional[str] = "gemini-1.5-flash", db:
         return {"status": "ok"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Ověření selhalo: {str(e)}")
+
+@app.post("/api/admin/settings/credentials", dependencies=[Depends(authenticate_admin)])
+def update_credentials(creds: CredentialsUpdate, db: Session = Depends(get_db)):
+    for k, v in {"admin_username": creds.username, "admin_password": creds.password}.items():
+        setting = db.query(Setting).filter(Setting.key == k).first()
+        if setting: setting.value = v
+        else: db.add(Setting(key=k, value=v))
+    db.commit()
+    return {"status": "ok"}
 
 def get_ai_config(db: Session):
     key_setting = db.query(Setting).filter(Setting.key == "gemini_api_key").first()

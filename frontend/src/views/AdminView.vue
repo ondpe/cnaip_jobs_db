@@ -5,7 +5,7 @@ import axios from 'axios'
 import { 
   Plus, Play, Cpu, Search, 
   RefreshCw, Clock, Briefcase, MapPin, 
-  Key, X, ExternalLink, Trash2, Filter, CheckCircle2, AlertCircle, AlertTriangle, Terminal, ChevronRight, LogOut
+  Key, X, ExternalLink, Trash2, Filter, CheckCircle2, AlertCircle, AlertTriangle, Terminal, ChevronRight, LogOut, ShieldCheck, User, Lock
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -30,6 +30,7 @@ const hasAiKey = ref(false)
 const maskedKey = ref('')
 const currentModel = ref('')
 const isEditingAi = ref(false)
+const isEditingCreds = ref(false)
 const isAddingSource = ref(false)
 const newAiKey = ref('')
 const availableModels = ref<any[]>([])
@@ -44,6 +45,7 @@ const debugLogs = ref<string[]>([])
 let logInterval: any = null
 
 const newSource = ref({ name: '', url: '' })
+const newCreds = ref({ username: '', password: '' })
 
 const showConfirmAnalysis = ref(false)
 const lastAnalysisResult = ref<{ count: number, deleted: number } | null>(null)
@@ -192,6 +194,19 @@ const saveAiSettings = async () => {
   } finally { loading.value = false }
 }
 
+const saveCredentials = async () => {
+  const adminAuth = getAdminAuth()
+  if (!newCreds.value.username || !newCreds.value.password || !adminAuth) return
+  loading.value = true
+  try {
+    await axios.post('/api/admin/settings/credentials', newCreds.value, adminAuth)
+    alert('Údaje byly změněny. Budete odhlášeni.')
+    logout()
+  } catch (e: any) {
+    alert('Chyba při ukládání údajů.')
+  } finally { loading.value = false }
+}
+
 const runBulkAiAnalysis = async () => {
   const adminAuth = getAdminAuth()
   if (!adminAuth) return
@@ -286,9 +301,14 @@ onUnmounted(() => clearInterval(logInterval))
               <span class="text-[10px] font-black text-gray-400 uppercase tracking-widest">AI Služba</span>
               <span class="text-sm font-bold text-[#002B5C]">{{ hasAiKey ? currentModel : 'Chybí klíč' }}</span>
             </div>
-            <button @click="isEditingAi = !isEditingAi" :class="['p-1.5 rounded-lg transition-colors', isEditingAi ? 'bg-blue-50 text-blue-600' : 'hover:bg-gray-50 text-gray-400']">
-              <Key :size="16" />
-            </button>
+            <div class="flex gap-1">
+              <button @click="isEditingAi = !isEditingAi; isEditingCreds = false" :class="['p-1.5 rounded-lg transition-colors', isEditingAi ? 'bg-blue-50 text-blue-600' : 'hover:bg-gray-50 text-gray-400']" title="Nastavení AI">
+                <Key :size="16" />
+              </button>
+              <button @click="isEditingCreds = !isEditingCreds; isEditingAi = false" :class="['p-1.5 rounded-lg transition-colors', isEditingCreds ? 'bg-blue-50 text-blue-600' : 'hover:bg-gray-50 text-gray-400']" title="Změna přístupových údajů">
+                <ShieldCheck :size="16" />
+              </button>
+            </div>
           </div>
           
           <button @click="toggleLogs" :class="['flex items-center gap-2 px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all', showLogs ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-400 hover:bg-gray-200']">
@@ -334,15 +354,38 @@ onUnmounted(() => clearInterval(logInterval))
               </select>
             </div>
           </div>
-          
-          <div v-if="keyError" class="text-xs text-red-600 font-bold flex items-center gap-2">
-            <AlertCircle :size="14" /> {{ keyError }}
-          </div>
-
           <div class="flex justify-end gap-3 pt-2">
             <button @click="isEditingAi = false" class="text-xs font-black text-gray-400 hover:text-gray-600 uppercase tracking-widest">Zrušit</button>
             <button v-if="availableModels.length > 0" @click="saveAiSettings" :disabled="loading" class="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-black hover:bg-blue-700 disabled:opacity-50">
               ULOŽIT NASTAVENÍ
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Credentials Settings Form -->
+      <div v-if="isEditingCreds" class="px-5 pb-5 pt-0 animate-in slide-in-from-top-2">
+        <div class="p-6 bg-gray-50/80 rounded-2xl border border-gray-200 space-y-4">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Nové přihlašovací jméno</label>
+              <div class="relative">
+                <User class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" :size="16" />
+                <input v-model="newCreds.username" type="text" placeholder="Jméno..." class="w-full bg-white border border-gray-200 rounded-xl p-3 pl-10 text-sm outline-none focus:ring-2 focus:ring-blue-100">
+              </div>
+            </div>
+            <div>
+              <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Nové heslo</label>
+              <div class="relative">
+                <Lock class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" :size="16" />
+                <input v-model="newCreds.password" type="password" placeholder="Heslo..." class="w-full bg-white border border-gray-200 rounded-xl p-3 pl-10 text-sm outline-none focus:ring-2 focus:ring-blue-100">
+              </div>
+            </div>
+          </div>
+          <div class="flex justify-end gap-3 pt-2">
+            <button @click="isEditingCreds = false" class="text-xs font-black text-gray-400 hover:text-gray-600 uppercase tracking-widest">Zrušit</button>
+            <button @click="saveCredentials" :disabled="loading || !newCreds.username || !newCreds.password" class="bg-gray-900 text-white px-4 py-2 rounded-xl text-xs font-black hover:bg-black disabled:opacity-50 uppercase tracking-widest">
+              Změnit údaje
             </button>
           </div>
         </div>
