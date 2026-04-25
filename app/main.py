@@ -169,10 +169,15 @@ async def run_analysis(db: Session = Depends(get_db)):
         (Job.summary == "") | (Job.summary == None) | (Job.summary.like("%Čeká na AI%")) | (Job.summary.like("%Chyba AI%"))
     ).all()
     
+    total = len(unprocessed)
+    add_debug_log(f"Spouštím hromadnou analýzu pro {total} pozic...")
+    
     analyzed_count = 0
     deleted_count = 0
-    for job in unprocessed:
+    for i, job in enumerate(unprocessed):
+        add_debug_log(f"[{i+1}/{total}] Zpracovávám: {job.title} ({job.company})")
         if (not job.raw_content or len(job.raw_content) < 500) and job.link:
+            add_debug_log(f"   Stahuji detail z {job.link}")
             full_text = await fetch_job_detail(job.link)
             if full_text:
                 job.raw_content = full_text
@@ -180,6 +185,7 @@ async def run_analysis(db: Session = Depends(get_db)):
 
         analysis = analyze_job_with_ai(job.raw_content or job.title, api_key, model_name)
         if not analysis.get("is_job", True):
+            add_debug_log(f"   AI: Není to job, mažu.")
             db.delete(job)
             deleted_count += 1
         else:
@@ -189,8 +195,10 @@ async def run_analysis(db: Session = Depends(get_db)):
             job.summary = analysis.get('summary', 'Bez shrnutí')
             job.last_analyzed_at = datetime.utcnow()
             analyzed_count += 1
+            add_debug_log(f"   AI: Ok ({seniority})")
+        db.commit()
     
-    db.commit()
+    add_debug_log(f"Analýza dokončena. Zpracováno: {analyzed_count}, Smazáno: {deleted_count}")
     return {"count": analyzed_count, "deleted": deleted_count}
 
 @app.post("/api/admin/jobs/bulk-analyze", dependencies=[Depends(authenticate_admin)])
@@ -198,9 +206,13 @@ async def bulk_analyze_jobs(action: BulkAction, db: Session = Depends(get_db)):
     api_key, model_name = get_ai_config(db)
     jobs_to_analyze = db.query(Job).filter(Job.id.in_(action.ids)).all()
     
+    total = len(jobs_to_analyze)
+    add_debug_log(f"Spouštím vybranou analýzu pro {total} pozic...")
+    
     count = 0
     deleted = 0
-    for job in jobs_to_analyze:
+    for i, job in enumerate(jobs_to_analyze):
+        add_debug_log(f"[{i+1}/{total}] Zpracovávám: {job.title} ({job.company})")
         if (not job.raw_content or len(job.raw_content) < 500) and job.link:
             full_text = await fetch_job_detail(job.link)
             if full_text:
@@ -218,8 +230,9 @@ async def bulk_analyze_jobs(action: BulkAction, db: Session = Depends(get_db)):
             job.summary = analysis.get('summary', 'Bez shrnutí')
             job.last_analyzed_at = datetime.utcnow()
             count += 1
+        db.commit()
     
-    db.commit()
+    add_debug_log(f"Hromadná analýza hotova. Ok: {count}, Smazáno: {deleted}")
     return {"count": count, "deleted": deleted}
 
 @app.post("/api/admin/analyze-job/{job_id}", dependencies=[Depends(authenticate_admin)])
@@ -227,6 +240,7 @@ async def analyze_single_job(job_id: int, db: Session = Depends(get_db)):
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job: raise HTTPException(404, detail="Pozice nenalezena")
     
+    add_debug_log(f"Manuální analýza: {job.title}")
     if (not job.raw_content or len(job.raw_content) < 500) and job.link:
         full_text = await fetch_job_detail(job.link)
         if full_text:
@@ -237,6 +251,7 @@ async def analyze_single_job(job_id: int, db: Session = Depends(get_db)):
     analysis = analyze_job_with_ai(job.raw_content or job.title, api_key, model_name)
     
     if not analysis.get("is_job", True):
+        add_debug_log("   AI: Není to job, mažu.")
         db.delete(job)
         db.commit()
         return {"status": "deleted"}
@@ -247,6 +262,7 @@ async def analyze_single_job(job_id: int, db: Session = Depends(get_db)):
     job.summary = analysis.get('summary', 'Bez shrnutí')
     job.last_analyzed_at = datetime.utcnow()
     db.commit()
+    add_debug_log(f"   AI: Hotovo ({seniority})")
     return analysis
 
 @app.post("/api/admin/scrape/{source_id}", dependencies=[Depends(authenticate_admin)])
@@ -254,12 +270,15 @@ async def run_scrape(source_id: int, db: Session = Depends(get_db)):
     source = db.query(Source).filter(Source.id == source_id).first()
     if not source: raise HTTPException(404, detail="Zdroj nenalezen")
     
+    add_debug_log(f"Spouštím scraping zdroje: {source.name} ({source.url})")
     api_key, model_name = get_ai_config(db)
     scraped = await scrape_source(source.url, source.name)
     
+    add_debug_log(f"Nalezeno {len(scraped)} odkazů. Provádím rychlou filtraci...")
+    
     new_count = 0
     skipped_count = 0
-    for item in scraped:
+    for i, item in enumerate(scraped):
         existing = db.query(Job).filter(Job.title == item['title'], Job.source_id == source.id).first()
         if not existing:
             # Rychlá AI filtrace před uložením
@@ -268,11 +287,14 @@ async def run_scrape(source_id: int, db: Session = Depends(get_db)):
                 new_count += 1
             else:
                 skipped_count += 1
+        else:
+            add_debug_log(f"   Duplicita: {item['title']}")
                 
     source.last_crawled_at = datetime.utcnow()
     source.last_scrape_count = new_count
     source.last_scrape_found = len(scraped)
     db.commit()
+    add_debug_log(f"Scraping hotov. Nových: {new_count}, Vyfiltrováno jako ne-job: {skipped_count}")
     return {"new": new_count, "skipped": skipped_count, "total": len(scraped)}
 
 frontend_dist = os.path.join(os.getcwd(), "frontend", "dist")
