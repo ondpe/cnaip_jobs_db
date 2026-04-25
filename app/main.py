@@ -1,7 +1,8 @@
 from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy import create_engine, text
 import os
 import logging
 from datetime import datetime
@@ -34,12 +35,16 @@ async def index(request: Request, db: Session = Depends(get_db)):
     try:
         jobs = db.query(Job).order_by(Job.created_at.desc()).all()
         sources = db.query(Source).all()
+        # Kontrola, zda běžíme na Supabase (Postgres)
+        is_supabase = "postgresql" in str(db.get_bind().url)
+        
         if templates:
             return templates.TemplateResponse("index.html", {
                 "request": request,
                 "jobs": jobs,
                 "sources": sources,
-                "count": len(jobs)
+                "count": len(jobs),
+                "is_supabase": is_supabase
             })
         return HTMLResponse("<h1>Web běží!</h1><p>Šablony se nepodařilo načíst, ale API je aktivní.</p>")
     except Exception as e:
@@ -78,3 +83,46 @@ def run_analysis(db: Session = Depends(get_db)):
         job.keywords, job.summary = analysis["keywords"], f"{analysis['summary']} (Seniorita: {analysis['seniority']})"
     db.commit()
     return {"message": f"Analyzováno {len(unprocessed)} pozic."}
+
+@app.post("/api/migrate-from-sqlite")
+async def migrate_data(db_target: Session = Depends(get_db)):
+    sqlite_path = "./data/jobs.db"
+    if not os.path.exists(sqlite_path):
+        return JSONResponse({"error": f"Soubor {sqlite_path} nebyl nalezen."}, status_code=404)
+    
+    # Připojení k původní SQLite
+    engine_sqlite = create_engine(f"sqlite:///{sqlite_path}")
+    SessionSQLite = sessionmaker(bind=engine_sqlite)
+    db_source = SessionSQLite()
+    
+    try:
+        # 1. Přeneseme Zdroje
+        sources = db_source.query(Source).all()
+        for s in sources:
+            if not db_target.query(Source).filter(Source.id == s.id).first():
+                db_target.add(Source(id=s.id, url=s.url, name=s.name, is_active=s.is_active))
+        db_target.commit()
+
+        # 2. Přeneseme Pozice
+        jobs = db_source.query(Job).all()
+        for j in jobs:
+            if not db_target.query(Job).filter(Job.id == j.id).first():
+                db_target.add(Job(
+                    id=j.id, title=j.title, company=j.company, location=j.location,
+                    keywords=j.keywords, summary=j.summary, raw_content=j.raw_content,
+                    source_id=j.source_id, created_at=j.created_at
+                ))
+        db_target.commit()
+
+        # 3. Reset sekvencí v Postgresu (aby ID zase fungovala od konce)
+        if "postgresql" in str(db_target.get_bind().url):
+            db_target.execute(text("SELECT setval('sources_id_seq', (SELECT MAX(id) FROM sources))"))
+            db_target.execute(text("SELECT setval('jobs_id_seq', (SELECT MAX(id) FROM jobs))"))
+            db_target.commit()
+
+        return {"message": f"Migrace úspěšná! Přeneseno {len(sources)} zdrojů a {len(jobs)} pozic."}
+    except Exception as e:
+        db_target.rollback()
+        return JSONResponse({"error": str(e)}, status_code=500)
+    finally:
+        db_source.close()
