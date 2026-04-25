@@ -149,7 +149,7 @@ def get_gemini_key(db: Session = Depends(get_db)):
 def set_gemini_key(key: str, db: Session = Depends(get_db)):
     try:
         genai.configure(api_key=key)
-        model = genai.GenerativeModel('gemini-2.0-flash')
+        model = genai.GenerativeModel('gemini-1.5-flash')
         model.generate_content("ping", generation_config={"max_output_tokens": 1})
     except Exception as e:
         logger.error(f"Neplatný AI klíč: {e}")
@@ -172,7 +172,7 @@ def get_active_api_key(db: Session):
 @app.post("/api/admin/run-ai-analysis", dependencies=[Depends(authenticate_admin)])
 def run_analysis(db: Session = Depends(get_db)):
     api_key = get_active_api_key(db)
-    add_debug_log(f"Spouštím hromadnou analýzu s Gemini 2.0. Klíč nalezen: {bool(api_key)}")
+    add_debug_log(f"Spouštím hromadnou analýzu s Gemini 1.5. Klíč nalezen: {bool(api_key)}")
     
     unprocessed = db.query(Job).filter(
         (Job.summary == "") | 
