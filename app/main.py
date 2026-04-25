@@ -39,6 +39,10 @@ app.add_middleware(
 
 security = HTTPBasic()
 
+# Pomocná funkce pro získání absolutní cesty k frontend/dist
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+frontend_dist = os.path.join(BASE_DIR, "frontend", "dist")
+
 class SourceCreate(BaseModel):
     name: str
     url: str
@@ -215,7 +219,6 @@ async def run_analysis(db: Session = Depends(get_db)):
 
             analysis = await run_in_threadpool(analyze_job_with_ai, job.raw_content or job.title, api_key, model_name)
             
-            # Druhá fáze už nemaže, jen varuje
             if not analysis.get("is_job", True):
                 add_debug_log(f"   AI WARNING: AI si není jistá, zda je toto inzerát.")
                 job.summary = "⚠️ AI detekovala nízkou relevanci: " + (analysis.get('summary', ''))
@@ -326,7 +329,6 @@ async def run_scrape(source_id: int, db: Session = Depends(get_db)):
             if existing:
                 relevant_found += 1
             else:
-                # V první fázi scrapingu STÁLE vyhazujeme nerelevantní
                 is_job = await run_in_threadpool(is_likely_job, item['title'], item.get('url', ''), api_key, model_name)
                 if is_job:
                     db.add(Job(title=item['title'], company=source.name, location=item.get('location'), raw_content=item.get('raw_content'), link=item.get('url'), source_id=source.id))
@@ -342,13 +344,23 @@ async def run_scrape(source_id: int, db: Session = Depends(get_db)):
     finally:
         current_activity = None
 
-frontend_dist = os.path.join(os.getcwd(), "frontend", "dist")
-if os.path.exists(frontend_dist):
+# Montování statických souborů pro lokální vývoj
+if os.path.exists(os.path.join(frontend_dist, "assets")):
     app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist, "assets")), name="assets")
 
 @app.get("/{full_path:path}")
 async def serve_frontend(full_path: str):
+    # API routy ignorujeme
     if full_path.startswith("api"): raise HTTPException(404)
+    
+    # Zkusíme najít soubor přímo v dist (např. favicon.ico nebo assets/...)
     file_path = os.path.join(frontend_dist, full_path)
-    if os.path.isfile(file_path): return FileResponse(file_path)
-    return FileResponse(os.path.join(frontend_dist, "index.html"))
+    if os.path.isfile(file_path):
+        return FileResponse(file_path)
+    
+    # Pokud soubor neexistuje a není to cesta k assetu, vrátíme index.html (pro SPA)
+    index_path = os.path.join(frontend_dist, "index.html")
+    if os.path.isfile(index_path):
+        return FileResponse(index_path)
+        
+    return {"error": "Frontend not built or not found"}
