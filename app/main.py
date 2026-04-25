@@ -18,6 +18,10 @@ import io
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Získání absolutní cesty k adresáři s projektem
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
+
 # 1. Nejdříve vytvoříme aplikaci
 app = FastAPI(
     title="Job Scraper API",
@@ -25,25 +29,33 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# 2. Pak inicializujeme šablony
-templates = Jinja2Templates(directory="templates")
+# 2. Pak inicializujeme šablony s absolutní cestou
+logger.info(f"Hledám šablony v: {TEMPLATES_DIR}")
+templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
 # 3. HOME PAGE - Tady vracíme ten pěkný web
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request, db: Session = Depends(get_db)):
-    jobs = db.query(Job).order_by(Job.created_at.desc()).all()
-    sources = db.query(Source).all()
-    return templates.TemplateResponse("index.html", {
-        "request": request, 
-        "jobs": jobs, 
-        "sources": sources,
-        "count": len(jobs)
-    })
+    logger.info("Někdo přistoupil na hlavní stránku (/)")
+    try:
+        jobs = db.query(Job).order_by(Job.created_at.desc()).all()
+        sources = db.query(Source).all()
+        return templates.TemplateResponse("index.html", {
+            "request": request, 
+            "jobs": jobs, 
+            "sources": sources,
+            "count": len(jobs)
+        })
+    except Exception as e:
+        logger.error(f"Chyba při renderování indexu: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.on_event("startup")
 def startup_event():
     """Initialize database on startup"""
-    os.makedirs("./data", exist_ok=True)
+    data_dir = os.path.join(BASE_DIR, "data")
+    os.makedirs(data_dir, exist_ok=True)
+    logger.info(f"Inicializuji databázi v: {data_dir}")
     init_db()
 
 # --- ZDROJE (SOURCES) ---
@@ -63,32 +75,6 @@ def create_source(url: str, name: str, is_active: bool = True, db: Session = Dep
     db.commit()
     db.refresh(new_source)
     return {"message": "Source created successfully", "source": new_source}
-
-@app.post("/sources/import-excel")
-async def import_from_excel(file: UploadFile = File(...), db: Session = Depends(get_db)):
-    try:
-        contents = await file.read()
-        df = pd.read_excel(io.BytesIO(contents))
-        
-        if 'url' not in df.columns or 'name' not in df.columns:
-            raise HTTPException(status_code=400, detail="Excel musí obsahovat sloupce 'url' a 'name'")
-
-        new_sources_count = 0
-        for _, row in df.iterrows():
-            url_val = str(row['url']).strip()
-            name_val = str(row['name']).strip()
-
-            existing = db.query(Source).filter(Source.url == url_val).first()
-            if not existing:
-                new_source = Source(url=url_val, name=name_val, is_active=True)
-                db.add(new_source)
-                new_sources_count += 1
-        
-        db.commit()
-        return {"message": f"Úspěšně importováno {new_sources_count} nových zdrojů z Excelu."}
-    except Exception as e:
-        logger.error(f"Excel import error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Nepodařilo se zpracovat Excel: {str(e)}")
 
 # --- PRÁCE (JOBS) ---
 @app.get("/jobs")
