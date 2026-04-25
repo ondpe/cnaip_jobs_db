@@ -28,7 +28,8 @@ const loading = ref(false)
 const hasAiKey = ref(false)
 const maskedKey = ref('')
 const currentModel = ref('')
-const showKeyModal = ref(false)
+const isEditingAi = ref(false)
+const isAddingSource = ref(false)
 const newAiKey = ref('')
 const availableModels = ref<any[]>([])
 const selectedModel = ref('gemini-1.5-flash')
@@ -40,14 +41,12 @@ const showLogs = ref(false)
 const debugLogs = ref<string[]>([])
 let logInterval: any = null
 
-const showSourceModal = ref(false)
 const newSource = ref({ name: '', url: '' })
 
 const showConfirmAnalysis = ref(false)
 const lastAnalysisResult = ref<{ count: number, deleted: number } | null>(null)
 const onlyNeedsAi = ref(false)
 
-// Získání credentials ze session
 const getAdminAuth = () => {
   const username = sessionStorage.getItem('admin_user')
   const password = sessionStorage.getItem('admin_pass')
@@ -111,7 +110,7 @@ const addSource = async () => {
   try {
     await axios.post('/api/admin/sources', newSource.value, adminAuth)
     newSource.value = { name: '', url: '' }
-    showSourceModal.value = false
+    isAddingSource.value = false
     await fetchData()
   } finally { loading.value = false }
 }
@@ -140,7 +139,7 @@ const fetchAvailableModels = async () => {
       else selectedModel.value = availableModels.value[0].name
     }
   } catch (e: any) {
-    keyError.value = e.response?.data?.detail || 'Nepodařilo se načíst seznam modelů.'
+    keyError.value = e.response?.data?.detail || 'Nepodařilo se načíst modely.'
   } finally { loading.value = false }
 }
 
@@ -150,7 +149,7 @@ const saveAiSettings = async () => {
   keyError.value = ''; loading.value = true
   try {
     await axios.post(`/api/admin/settings/gemini-key?key=${newAiKey.value}&model_name=${selectedModel.value}`, {}, adminAuth)
-    newAiKey.value = ''; availableModels.value = []; showKeyModal.value = false; await fetchData()
+    newAiKey.value = ''; availableModels.value = []; isEditingAi.value = false; await fetchData()
   } catch (e: any) {
     keyError.value = e.response?.data?.detail || 'Nastavení se nepodařilo uložit.'
   } finally { loading.value = false }
@@ -241,9 +240,9 @@ onUnmounted(() => clearInterval(logInterval))
       </div>
     </div>
 
-    <!-- Top Stats / Actions -->
-    <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
-      <div class="flex flex-wrap items-center justify-between gap-6">
+    <!-- AI Stats & Inline Settings -->
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+      <div class="p-5 flex flex-wrap items-center justify-between gap-6">
         <div class="flex items-center gap-8">
           <div class="flex items-center gap-3">
             <div :class="`w-3 h-3 rounded-full ${hasAiKey ? 'bg-green-500 shadow-lg shadow-green-200' : 'bg-red-500 shadow-lg shadow-red-200'}`"></div>
@@ -251,8 +250,8 @@ onUnmounted(() => clearInterval(logInterval))
               <span class="text-[10px] font-black text-gray-400 uppercase tracking-widest">AI Služba</span>
               <span class="text-sm font-bold text-[#002B5C]">{{ hasAiKey ? currentModel : 'Chybí klíč' }}</span>
             </div>
-            <button @click="showKeyModal = true" class="p-1.5 hover:bg-gray-50 rounded-lg transition-colors flex items-center gap-2">
-              <Key :size="16" class="text-gray-400" />
+            <button @click="isEditingAi = !isEditingAi" :class="['p-1.5 rounded-lg transition-colors', isEditingAi ? 'bg-blue-50 text-blue-600' : 'hover:bg-gray-50 text-gray-400']">
+              <Key :size="16" />
             </button>
           </div>
           
@@ -278,6 +277,40 @@ onUnmounted(() => clearInterval(logInterval))
           </div>
         </div>
       </div>
+
+      <!-- Inline AI Settings Form -->
+      <div v-if="isEditingAi" class="px-5 pb-5 pt-0 animate-in slide-in-from-top-2">
+        <div class="p-6 bg-blue-50/50 rounded-2xl border border-blue-100 space-y-4">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label class="block text-[10px] font-black text-blue-900/40 uppercase tracking-widest mb-2">Nový Google AI API Klíč</label>
+              <div class="relative">
+                <input v-model="newAiKey" type="password" placeholder="Vložte API klíč..." class="w-full bg-white border border-blue-100 rounded-xl p-3 pr-12 text-sm outline-none focus:ring-2 focus:ring-blue-200">
+                <button @click="fetchAvailableModels" :disabled="loading || !newAiKey" class="absolute right-2 top-2 p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg disabled:opacity-30">
+                  <ChevronRight :size="18" />
+                </button>
+              </div>
+            </div>
+            <div v-if="availableModels.length > 0">
+              <label class="block text-[10px] font-black text-blue-900/40 uppercase tracking-widest mb-2">Vybrat Model</label>
+              <select v-model="selectedModel" class="w-full bg-white border border-blue-100 rounded-xl p-3 text-sm outline-none focus:ring-2 focus:ring-blue-200">
+                <option v-for="m in availableModels" :key="m.name" :value="m.name">{{ m.display_name }}</option>
+              </select>
+            </div>
+          </div>
+          
+          <div v-if="keyError" class="text-xs text-red-600 font-bold flex items-center gap-2">
+            <AlertCircle :size="14" /> {{ keyError }}
+          </div>
+
+          <div class="flex justify-end gap-3 pt-2">
+            <button @click="isEditingAi = false" class="text-xs font-black text-gray-400 hover:text-gray-600 uppercase tracking-widest">Zrušit</button>
+            <button v-if="availableModels.length > 0" @click="saveAiSettings" :disabled="loading" class="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-black hover:bg-blue-700 disabled:opacity-50">
+              ULOŽIT NASTAVENÍ
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Debug Log Console -->
@@ -297,9 +330,27 @@ onUnmounted(() => clearInterval(logInterval))
         <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
           <div class="p-5 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
             <h2 class="font-black text-[#002B5C] uppercase tracking-widest text-xs">Zdroje</h2>
-            <button @click="showSourceModal = true" class="p-1.5 bg-[#002B5C] text-white rounded-lg hover:bg-blue-900 transition-colors">
+            <button @click="isAddingSource = !isAddingSource" :class="['p-1.5 rounded-lg transition-colors', isAddingSource ? 'bg-blue-600 text-white' : 'bg-[#002B5C] text-white hover:bg-blue-900']">
               <Plus :size="16" />
             </button>
+          </div>
+
+          <!-- Inline Add Source Form -->
+          <div v-if="isAddingSource" class="p-5 bg-blue-50/30 border-b border-blue-50 animate-in slide-in-from-top-2">
+            <div class="space-y-4">
+              <div>
+                <label class="block text-[10px] font-black text-blue-900/40 uppercase tracking-widest mb-1.5">Název firmy</label>
+                <input v-model="newSource.name" type="text" placeholder="Např. Google" class="w-full bg-white border border-blue-100 rounded-xl p-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-100">
+              </div>
+              <div>
+                <label class="block text-[10px] font-black text-blue-900/40 uppercase tracking-widest mb-1.5">URL kariérních stránek</label>
+                <input v-model="newSource.url" type="url" placeholder="https://..." class="w-full bg-white border border-blue-100 rounded-xl p-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-100">
+              </div>
+              <div class="flex gap-2 pt-2">
+                <button @click="addSource" :disabled="loading || !newSource.name || !newSource.url" class="flex-1 bg-blue-600 text-white font-black py-2 rounded-xl text-xs hover:bg-blue-700 disabled:opacity-50">PŘIDAT</button>
+                <button @click="isAddingSource = false" class="px-4 py-2 text-xs font-black text-gray-400 hover:text-gray-600 uppercase tracking-widest">Zrušit</button>
+              </div>
+            </div>
           </div>
           
           <div v-if="sources.length" class="px-5 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
@@ -391,75 +442,6 @@ onUnmounted(() => clearInterval(logInterval))
               {{ job.summary || 'Tato pozice zatím nebyla zpracována AI modelem.' }}
             </div>
           </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Modal: Add Source -->
-    <div v-if="showSourceModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-6 animate-in fade-in">
-      <div class="bg-white rounded-3xl shadow-2xl max-w-md w-full p-8 border border-gray-100">
-        <div class="flex justify-between items-center mb-6">
-          <h3 class="font-black text-2xl text-[#002B5C]">Přidat zdroj</h3>
-          <button @click="showSourceModal = false" class="p-2 hover:bg-gray-100 rounded-full"><X :size="24" /></button>
-        </div>
-        <div class="space-y-4">
-          <div>
-            <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Název firmy</label>
-            <input v-model="newSource.name" type="text" placeholder="Např. Google" class="w-full border-2 border-gray-100 rounded-2xl p-4 focus:border-blue-200 outline-none">
-          </div>
-          <div>
-            <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">URL kariérních stránek</label>
-            <input v-model="newSource.url" type="url" placeholder="https://..." class="w-full border-2 border-gray-100 rounded-2xl p-4 focus:border-blue-200 outline-none">
-          </div>
-        </div>
-        <button @click="addSource" :disabled="loading || !newSource.name || !newSource.url" class="w-full mt-6 bg-[#002B5C] text-white font-black py-4 rounded-2xl shadow-lg hover:bg-blue-900 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
-          ULOŽIT ZDROJ
-        </button>
-      </div>
-    </div>
-
-    <!-- Modal: AI Settings -->
-    <div v-if="showKeyModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-6 animate-in fade-in">
-      <div class="bg-white rounded-3xl shadow-2xl max-w-md w-full p-8 border border-gray-100">
-        <div class="flex justify-between items-center mb-6">
-          <h3 class="font-black text-2xl text-[#002B5C]">Nastavení AI</h3>
-          <button @click="showKeyModal = false" class="p-2 hover:bg-gray-100 rounded-full"><X :size="24" /></button>
-        </div>
-        
-        <div class="space-y-6">
-          <!-- Step 1: API Key -->
-          <div>
-            <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Google AI API Klíč</label>
-            <div class="relative">
-              <input v-model="newAiKey" type="password" placeholder="Vložte API klíč..." class="w-full border-2 border-gray-100 rounded-2xl p-4 pr-12 focus:border-blue-200 outline-none" :disabled="loading">
-              <button @click="fetchAvailableModels" :disabled="loading || !newAiKey" class="absolute right-2 top-2 p-2 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100 transition-all disabled:opacity-50">
-                <ChevronRight :size="20" />
-              </button>
-            </div>
-            <p v-if="maskedKey" class="mt-2 text-[10px] text-gray-400 font-mono">Aktuální: {{ maskedKey }}</p>
-          </div>
-
-          <!-- Step 2: Model Selection (Visible only after fetching) -->
-          <div v-if="availableModels.length > 0" class="animate-in slide-in-from-top-4">
-            <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Vyberte model</label>
-            <select v-model="selectedModel" class="w-full border-2 border-gray-100 rounded-2xl p-4 bg-white outline-none focus:border-blue-200">
-              <option v-for="m in availableModels" :key="m.name" :value="m.name">{{ m.display_name }} ({{ m.name }})</option>
-            </select>
-            <div class="mt-4 p-4 bg-blue-50 rounded-2xl border border-blue-100 flex items-start gap-3">
-              <AlertCircle :size="18" class="text-blue-600 shrink-0" />
-              <p class="text-[10px] text-blue-800 font-medium leading-relaxed">
-                Doporučujeme modely s příponou <span class="font-bold">flash</span> pro nejrychlejší a nejlevnější analýzu.
-              </p>
-            </div>
-          </div>
-
-          <div v-if="keyError" class="p-4 bg-red-50 text-red-600 text-xs rounded-2xl flex items-start gap-3 border border-red-100">
-            <AlertCircle :size="18" class="shrink-0" /> {{ keyError }}
-          </div>
-
-          <button v-if="availableModels.length > 0" @click="saveAiSettings" :disabled="loading || !selectedModel" class="w-full bg-[#002B5C] text-white font-black py-4 rounded-2xl shadow-lg hover:bg-blue-900 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
-            <RefreshCw v-if="loading" :size="20" class="animate-spin" /> {{ loading ? 'UKLÁDÁM...' : 'DOKONČIT NASTAVENÍ' }}
-          </button>
         </div>
       </div>
     </div>
