@@ -43,6 +43,16 @@ def startup_event():
         os.makedirs("data")
     init_db()
 
+@app.get("/debug-env")
+def debug_env():
+    """Endpoint pro kontrolu dostupných environmentálních proměnných."""
+    # Vypíše všechny klíče, ale skryje hodnoty kvůli bezpečnosti
+    return {
+        "keys": list(os.environ.keys()), 
+        "database_url_exists": "DATABASE_URL" in os.environ,
+        "db_password_exists": "DB_PASSWORD" in os.environ
+    }
+
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request, db: Session = Depends(get_db)):
     try:
