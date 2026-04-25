@@ -53,12 +53,19 @@
                     <div class="list-group list-group-flush">
                         {% for source in sources %}
                         <div class="list-group-item d-flex justify-content-between align-items-center">
-                            <div class="text-truncate" style="max-width: 70%;">
+                            <div class="text-truncate" style="max-width: 65%;">
                                 <strong>{{ source.name }}</strong><br>
-                                <small class="text-muted text-truncate d-block">{{ source.url }}</small>
+                                <small class="text-muted d-block text-truncate">{{ source.url }}</small>
+                                <small class="text-info" style="font-size: 0.75rem;">
+                                    {% if source.last_crawled_at %}
+                                    <i class="bi bi-clock"></i> {{ source.last_crawled_at.strftime('%d.%m %H:%M') }}
+                                    {% else %}
+                                    Nikdy neproběhlo
+                                    {% endif %}
+                                </small>
                             </div>
-                            <button onclick="scrapeSource({{ source.id }})" class="btn btn-outline-primary btn-sm">
-                                <i class="bi bi-download"></i>
+                            <button onclick="scrapeSource({{ source.id }})" class="btn btn-outline-primary btn-sm" title="Aktualizovat">
+                                <i class="bi bi-arrow-clockwise"></i>
                             </button>
                         </div>
                         {% else %}

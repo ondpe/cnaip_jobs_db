@@ -20,6 +20,7 @@ class Source(Base):
     name = Column(String(200), nullable=False)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    last_crawled_at = Column(DateTime, nullable=True)
     
     # Relationship to jobs
     jobs = relationship("Job", back_populates="source")
