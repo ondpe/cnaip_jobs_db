@@ -1,3 +1,4 @@
+2-digit) pro odstranění RangeError.">
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import axios from 'axios'
@@ -102,7 +103,8 @@ const runAiAnalysis = async () => {
   }
 }
 
-const formatDate = (d: string | null) => d ? new Date(d).toLocaleString('cs-CZ', { day: '2.digit', month: '2.digit', hour: '2.digit', minute: '2.digit' }) : '---'
+// Opraveno formátování: 2-digit místo 2.digit
+const formatDate = (d: string | null) => d ? new Date(d).toLocaleString('cs-CZ', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '---'
 
 onMounted(fetchData)
 </script>
