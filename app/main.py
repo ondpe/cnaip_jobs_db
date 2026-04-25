@@ -31,10 +31,12 @@ templates = Jinja2Templates(directory="templates")
 # 3. HOME PAGE - Tady vracíme ten pěkný web
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request, db: Session = Depends(get_db)):
-    jobs = db.query(Job).all()
+    jobs = db.query(Job).order_by(Job.created_at.desc()).all()
+    sources = db.query(Source).all()
     return templates.TemplateResponse("index.html", {
         "request": request, 
         "jobs": jobs, 
+        "sources": sources,
         "count": len(jobs)
     })
 
@@ -121,7 +123,7 @@ async def scrape_jobs(source_id: int, db: Session = Depends(get_db)):
                 title=job_data.get('title', 'Untitled'),
                 company=job_data.get('company', ''),
                 location=job_data.get('location', ''),
-                keywords='', # Upraveno, aby se neplnilo URL adresou
+                keywords='', 
                 summary='',
                 raw_content=job_data.get('raw_content', ''),
                 source_id=source_id,
