@@ -4,7 +4,7 @@ import axios from 'axios'
 import { 
   Plus, Play, Cpu, Globe, Search, 
   RefreshCw, Clock, Briefcase, MapPin, 
-  Key, X, ExternalLink, Trash2, Edit3, Filter, CheckCircle2, AlertCircle
+  Key, X, ExternalLink, Trash2, Edit3, Filter, CheckCircle2, AlertCircle, AlertTriangle
 } from 'lucide-vue-next'
 
 interface Source {
@@ -38,6 +38,10 @@ const showKeyModal = ref(false)
 const newAiKey = ref('')
 const scrapingIds = ref<Set<number>>(new Set())
 const analyzingIds = ref<Set<number>>(new Set())
+
+// Analysis State
+const showConfirmAnalysis = ref(false)
+const lastAnalysisResult = ref<{ count: number, deleted: number } | null>(null)
 
 // Edit Modal
 const showEditModal = ref(false)
@@ -126,11 +130,15 @@ const scrapeSelected = async () => {
 
 const runBulkAiAnalysis = async () => {
   loading.value = true
+  showConfirmAnalysis.value = false
+  lastAnalysisResult.value = null
   try {
     const res = await axios.post('/api/admin/run-ai-analysis', {}, adminAuth)
-    alert(`AI analýza dokončena pro ${res.data.count} pozic.`)
+    lastAnalysisResult.value = res.data
     await fetchData()
-  } finally { loading.value = false }
+  } finally {
+    loading.value = false
+  }
 }
 
 const formatDate = (d: string | null) => d ? new Date(d).toLocaleString('cs-CZ', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '---'
@@ -141,30 +149,55 @@ onMounted(fetchData)
 <template>
   <div class="space-y-6">
     <!-- Top Stats / Actions -->
-    <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex flex-wrap items-center justify-between gap-6">
-      <div class="flex items-center gap-8">
-        <div class="flex items-center gap-3">
-          <div :class="`w-3 h-3 rounded-full ${hasAiKey ? 'bg-green-500 shadow-lg shadow-green-200' : 'bg-red-500 shadow-lg shadow-red-200'}`"></div>
-          <span class="text-sm font-bold text-[#002B5C] uppercase tracking-wider">AI Služba: {{ hasAiKey ? 'Aktivní' : 'Chybí klíč' }}</span>
-          <button @click="showKeyModal = true" class="p-1.5 hover:bg-gray-50 rounded-lg transition-colors">
-            <Key :size="16" class="text-gray-400" />
+    <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+      <div class="flex flex-wrap items-center justify-between gap-6">
+        <div class="flex items-center gap-8">
+          <div class="flex items-center gap-3">
+            <div :class="`w-3 h-3 rounded-full ${hasAiKey ? 'bg-green-500 shadow-lg shadow-green-200' : 'bg-red-500 shadow-lg shadow-red-200'}`"></div>
+            <span class="text-sm font-bold text-[#002B5C] uppercase tracking-wider">AI Služba: {{ hasAiKey ? 'Aktivní' : 'Chybí klíč' }}</span>
+            <button @click="showKeyModal = true" class="p-1.5 hover:bg-gray-50 rounded-lg transition-colors">
+              <Key :size="16" class="text-gray-400" />
+            </button>
+          </div>
+          
+          <div class="h-6 w-px bg-gray-100"></div>
+
+          <button 
+            @click="onlyNeedsAi = !onlyNeedsAi" 
+            :class="['flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-bold transition-all border', 
+              onlyNeedsAi ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-gray-50 border-gray-100 text-gray-500 hover:border-gray-300']"
+          >
+            <Filter :size="14" /> {{ onlyNeedsAi ? 'Filtruji neanalyzované' : 'Všechny pozice' }}
           </button>
         </div>
-        
-        <div class="h-6 w-px bg-gray-100"></div>
 
-        <button 
-          @click="onlyNeedsAi = !onlyNeedsAi" 
-          :class="['flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-bold transition-all border', 
-            onlyNeedsAi ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-gray-50 border-gray-100 text-gray-500 hover:border-gray-300']"
-        >
-          <Filter :size="14" /> {{ onlyNeedsAi ? 'Filtruji neanalyzované' : 'Všechny pozice' }}
-        </button>
+        <div class="flex flex-col items-end gap-2">
+          <div v-if="!showConfirmAnalysis" class="flex flex-col items-end gap-2">
+            <button 
+              @click="showConfirmAnalysis = true" 
+              :disabled="loading" 
+              class="bg-[#002B5C] text-white px-6 py-2.5 rounded-xl text-sm font-black flex items-center gap-2 hover:bg-blue-900 transition-all shadow-md shadow-blue-100 disabled:opacity-50"
+            >
+              <Cpu :size="18" :class="{ 'animate-pulse': loading }" /> Hromadná AI analýza
+            </button>
+          </div>
+          
+          <div v-else class="flex items-center gap-3 animate-in fade-in slide-in-from-right-4">
+            <span class="text-xs font-bold text-amber-600 flex items-center gap-1.5">
+              <AlertTriangle :size="14" /> Opravdu analyzovat vše?
+            </span>
+            <button @click="runBulkAiAnalysis" class="bg-green-600 text-white px-4 py-1.5 rounded-lg text-xs font-black hover:bg-green-700 transition-all">ANO, SPUSTIT</button>
+            <button @click="showConfirmAnalysis = false" class="bg-gray-100 text-gray-500 px-4 py-1.5 rounded-lg text-xs font-black hover:bg-gray-200 transition-all">ZRUŠIT</button>
+          </div>
+
+          <!-- Analysis Results -->
+          <div v-if="lastAnalysisResult" class="text-[10px] font-bold uppercase tracking-widest animate-in fade-in duration-500">
+            <span class="text-green-600 bg-green-50 px-2 py-1 rounded">Analyzováno: {{ lastAnalysisResult.count }}</span>
+            <span class="text-red-600 bg-red-50 px-2 py-1 rounded ml-2">Smazáno (odpad): {{ lastAnalysisResult.deleted }}</span>
+            <button @click="lastAnalysisResult = null" class="ml-2 text-gray-300 hover:text-gray-500"><X :size="10" /></button>
+          </div>
+        </div>
       </div>
-
-      <button @click="runBulkAiAnalysis" :disabled="loading" class="bg-[#002B5C] text-white px-6 py-2.5 rounded-xl text-sm font-black flex items-center gap-2 hover:bg-blue-900 transition-all shadow-md shadow-blue-100 disabled:opacity-50">
-        <Cpu :size="18" :class="{ 'animate-pulse': loading }" /> Hromadná AI analýza
-      </button>
     </div>
 
     <div class="grid grid-cols-12 gap-8 items-start">
