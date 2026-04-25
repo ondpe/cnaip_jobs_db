@@ -22,7 +22,6 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Job Scraper API")
 
-# CORS konfigurace
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -48,16 +47,17 @@ def authenticate_admin(credentials: HTTPBasicCredentials = Depends(security)):
 def startup_event():
     init_db()
 
-# --- API ENDPOINTY ---
+# --- VEŘEJNÉ API ---
 
 @app.get("/api/jobs")
 def get_jobs(db: Session = Depends(get_db)):
-    jobs = db.query(Job).order_by(Job.created_at.desc()).all()
-    return jobs
+    return db.query(Job).order_by(Job.created_at.desc()).all()
 
 @app.get("/api/sources")
 def get_sources(db: Session = Depends(get_db)):
     return db.query(Source).all()
+
+# --- ADMIN API (Zabezpečené) ---
 
 @app.post("/api/admin/sources", dependencies=[Depends(authenticate_admin)])
 def add_source(url: str, name: str, db: Session = Depends(get_db)):
@@ -67,35 +67,50 @@ def add_source(url: str, name: str, db: Session = Depends(get_db)):
     db.refresh(new_source)
     return new_source
 
-# --- SERVÍROVÁNÍ FRONTENDU ---
+@app.post("/api/admin/scrape/{source_id}", dependencies=[Depends(authenticate_admin)])
+async def run_scrape(source_id: int, db: Session = Depends(get_db)):
+    source = db.query(Source).filter(Source.id == source_id).first()
+    if not source: raise HTTPException(404, detail="Zdroj nenalezen")
+    
+    scraped = await scrape_source(source.url, source.name)
+    found_titles = []
+    new_count = 0
+    for item in scraped:
+        title = item['title']
+        found_titles.append(title)
+        existing = db.query(Job).filter(Job.title == title, Job.source_id == source.id).first()
+        if not existing:
+            db.add(Job(title=title, company=item.get('company'), location=item.get('location'), raw_content=item.get('raw_content'), source_id=source.id))
+            new_count += 1
+    
+    source.last_crawled_at = datetime.utcnow()
+    source.last_scrape_count = new_count
+    source.last_scrape_found = len(scraped)
+    db.commit()
+    return {"new": new_count, "total": len(scraped)}
+
+@app.post("/api/admin/run-ai-analysis", dependencies=[Depends(authenticate_admin)])
+def run_analysis(db: Session = Depends(get_db)):
+    key_setting = db.query(Setting).filter(Setting.key == "gemini_api_key").first()
+    api_key = key_setting.value if key_setting else os.getenv("GEMINI_API_KEY")
+    unprocessed = db.query(Job).filter((Job.summary == "") | (Job.summary == None)).all()
+    for job in unprocessed:
+        analysis = analyze_job_with_ai(job.raw_content, api_key)
+        job.keywords = analysis["keywords"]
+        job.summary = f"{analysis['summary']} (Seniorita: {analysis['seniority']})"
+        job.last_analyzed_at = datetime.utcnow()
+    db.commit()
+    return {"count": len(unprocessed)}
+
+# --- FRONTEND ---
 
 frontend_dist = os.path.join(os.getcwd(), "frontend", "dist")
-assets_path = os.path.join(frontend_dist, "assets")
-
-# Pokud existuje složka s asety, namontujeme ji
-if os.path.exists(assets_path):
-    app.mount("/assets", StaticFiles(directory=assets_path), name="assets")
-
-@app.get("/")
-async def serve_index():
-    index_path = os.path.join(frontend_dist, "index.html")
-    if os.path.exists(index_path):
-        return FileResponse(index_path)
-    return {"message": "Frontend nebyl nalezen. Klikněte na 'Rebuild' pro sestavení aplikace."}
+if os.path.exists(frontend_dist):
+    app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist, "assets")), name="assets")
 
 @app.get("/{full_path:path}")
-async def catch_all(full_path: str):
-    # Ignorujeme API požadavky, ty už jsou definovány výše
-    if full_path.startswith("api"):
-        raise HTTPException(status_code=404)
-        
+async def serve_frontend(full_path: str):
+    if full_path.startswith("api"): raise HTTPException(404)
     file_path = os.path.join(frontend_dist, full_path)
-    if os.path.exists(file_path) and os.path.isfile(file_path):
-        return FileResponse(file_path)
-    
-    # Fallback pro Vue router (SPA)
-    index_path = os.path.join(frontend_dist, "index.html")
-    if os.path.exists(index_path):
-        return FileResponse(index_path)
-        
-    raise HTTPException(status_code=404)
+    if os.path.isfile(file_path): return FileResponse(file_path)
+    return FileResponse(os.path.join(frontend_dist, "index.html"))
