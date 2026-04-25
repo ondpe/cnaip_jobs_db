@@ -17,8 +17,8 @@
         <div class="container">
             <div class="d-flex align-items-center">
                 <span class="navbar-brand mb-0 h1">🚀 Job Scraper Pro</span>
-                <span class="badge {{ 'bg-info' if is_supabase else 'bg-secondary' }} ms-2" style="font-size: 0.7rem;">
-                    DB: {{ 'Supabase' if is_supabase else 'SQLite' }}
+                <span class="badge {{ 'bg-success' if db_connected else 'bg-danger' }} ms-2" style="font-size: 0.7rem;">
+                    DB: {{ 'connected' if db_connected else 'error' }}
                 </span>
             </div>
             <div class="d-flex align-items-center">
@@ -99,6 +99,12 @@
                         </div>
                     </div>
                     {% endfor %}
+                    {% if not db_connected %}
+                    <div class="alert alert-danger">
+                        <i class="bi bi-exclamation-triangle-fill"></i>
+                        Nelze se připojit k databázi. Zkontrolujte své nastavení v souboru .env.
+                    </div>
+                    {% endif %}
                 </div>
             </div>
         </div>

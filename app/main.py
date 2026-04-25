@@ -2,6 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 import os
 import logging
 import csv
@@ -35,21 +36,31 @@ def startup_event():
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request, db: Session = Depends(get_db)):
+    db_connected = True
+    jobs = []
+    sources = []
+    has_gemini_key = False
+    
     try:
+        # Test spojení
+        db.execute(text("SELECT 1"))
+        
         jobs = db.query(Job).order_by(Job.created_at.desc()).all()
         sources = db.query(Source).all()
         gemini_key = db.query(Setting).filter(Setting.key == "gemini_api_key").first()
-        
-        return templates.TemplateResponse("index.html", {
-            "request": request,
-            "jobs": jobs,
-            "sources": sources,
-            "count": len(jobs),
-            "is_supabase": True, # Nyní už používáme jen Supabase
-            "has_gemini_key": bool(gemini_key and gemini_key.value)
-        })
+        has_gemini_key = bool(gemini_key and gemini_key.value)
     except Exception as e:
-        return HTMLResponse(f"<h1>Chyba databáze</h1><p>Ujistěte se, že jsou správně nastaveny přihlašovací údaje k Supabase v .env.</p><p>Detaily: {str(e)}</p>")
+        logger.error(f"Database connection error: {e}")
+        db_connected = False
+    
+    return templates.TemplateResponse("index.html", {
+        "request": request,
+        "jobs": jobs,
+        "sources": sources,
+        "count": len(jobs),
+        "db_connected": db_connected,
+        "has_gemini_key": has_gemini_key
+    })
 
 @app.get("/export/jobs")
 def export_jobs(db: Session = Depends(get_db)):
