@@ -1,7 +1,8 @@
 from fastapi import FastAPI, Depends, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -383,4 +384,14 @@ def export_jobs(db: Session = Depends(get_db)):
     response.headers["Content-Disposition"] = "attachment; filename=jobs_export.csv"
     return response
 
-# Na Vercelu static soubory obsluhuje rewrites, ale pro lokální vývoj ponecháme API na /api
+# Servírování statických souborů z frontend/dist
+static_path = "frontend/dist"
+if os.path.exists(static_path):
+    app.mount("/", StaticFiles(directory=static_path, html=True), name="static")
+
+@app.exception_handler(404)
+async def custom_404_handler(request: Request, exc: HTTPException):
+    # Pro SPA vracíme index.html, pokud cesta nezačíná na /api
+    if not request.url.path.startswith("/api") and os.path.exists(os.path.join(static_path, "index.html")):
+        return FileResponse(os.path.join(static_path, "index.html"))
+    return JSONResponse(status_code=404, content={"detail": "Not Found"})
