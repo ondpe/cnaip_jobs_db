@@ -1,1 +1,10 @@
 .dyad/
+node_modules/
+frontend/node_modules/
+frontend/dist/
+__pycache__/
+*.pyc
+.env
+.env.local
+*.db
+.vercel/
