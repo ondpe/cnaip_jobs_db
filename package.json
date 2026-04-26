@@ -2,7 +2,10 @@
   "name": "cnaip-jobs-db",
   "private": true,
   "scripts": {
-    "dev": "cd frontend && npm run dev -- --host 0.0.0.0",
+    "dev": "concurrently \"cd frontend && npm run dev -- --host 0.0.0.0\" \"python3 -m uvicorn app.main:app --reload --port 8000\"",
     "build": "cd frontend && npm install && npm run build"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
   }
 }
