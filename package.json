@@ -2,7 +2,7 @@
   "name": "cnaip-jobs-db",
   "private": true,
   "scripts": {
-    "dev": "cd frontend && npm run dev",
+    "dev": "cd frontend && npm run dev -- --host 0.0.0.0",
     "build": "cd frontend && npm install && npm run build"
   }
 }
