@@ -2,9 +2,8 @@ fastapi
 uvicorn
 sqlalchemy
 psycopg2-binary
+pandas
 requests
 beautifulsoup4
-python-dotenv
 google-generativeai
-pandas
-openpyxl
+python-dotenv

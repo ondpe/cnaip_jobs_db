@@ -6,7 +6,6 @@
   ],
   "rewrites": [
     { "source": "/api/(.*)", "destination": "app/main.py" },
-    { "source": "/assets/(.*)", "destination": "/assets/$1" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

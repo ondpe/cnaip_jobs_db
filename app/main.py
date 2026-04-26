@@ -1,8 +1,7 @@
 from fastapi import FastAPI, Depends, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import JSONResponse
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -39,10 +38,6 @@ app.add_middleware(
 )
 
 security = HTTPBasic()
-
-# Cesta k buildu frontendu
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-frontend_dist = os.path.join(BASE_DIR, "frontend", "dist")
 
 class SourceCreate(BaseModel):
     name: str
@@ -388,17 +383,4 @@ def export_jobs(db: Session = Depends(get_db)):
     response.headers["Content-Disposition"] = "attachment; filename=jobs_export.csv"
     return response
 
-# Montování statických souborů pro lokální vývoj a náhled
-if os.path.exists(frontend_dist):
-    app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist, "assets")), name="assets")
-
-@app.get("/{full_path:path}")
-async def serve_frontend(full_path: str):
-    if full_path.startswith("api"): raise HTTPException(404)
-    file_path = os.path.join(frontend_dist, full_path)
-    if os.path.isfile(file_path):
-        return FileResponse(file_path)
-    index_path = os.path.join(frontend_dist, "index.html")
-    if os.path.isfile(index_path):
-        return FileResponse(index_path)
-    return {"error": "Frontend dist not found. Run 'npm run build' in frontend folder."}
+# Na Vercelu static soubory obsluhuje rewrites, ale pro lokální vývoj ponecháme API na /api
