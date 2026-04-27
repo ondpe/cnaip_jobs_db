@@ -1,6 +1,6 @@
 import os
 import logging
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
 from app.models import Base
@@ -25,8 +25,10 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def init_db():
     try:
-        Base.metadata.create_all(bind=engine)
-        logger.info("Databáze inicializována.")
+        # Pouze ověření konektivity místo pomalého create_all
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        logger.info("DB spojení OK.")
     except Exception as e:
         logger.error(f"Inicializace DB selhala: {e}")
 

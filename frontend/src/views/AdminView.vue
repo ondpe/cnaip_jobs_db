@@ -27,6 +27,7 @@ const selectedSourceIds = ref<number[]>([])
 const selectedJobIds = ref<number[]>([])
 const searchQuery = ref('')
 const loading = ref(false)
+const initialLoading = ref(true)
 const hasAiKey = ref(false)
 const maskedKey = ref('')
 const currentModel = ref('')
@@ -132,7 +133,6 @@ const fetchStatus = async () => {
 }
 
 // Polling byl na žádost uživatele odstraněn. 
-// Funkce nyní pouze jednorázově načtou data.
 const startStatusPolling = () => {
   fetchStatus()
 }
@@ -333,14 +333,20 @@ const toggleSelectAllJobs = () => {
 
 const formatDate = (d: string | null) => d ? new Date(d).toLocaleString('cs-CZ', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '---'
 
-onMounted(() => {
-  fetchData()
-  fetchStatus() 
+onMounted(async () => {
+  await fetchData()
+  fetchStatus()
+  initialLoading.value = false
 })
 </script>
 
 <template>
-  <div class="max-w-7xl mx-auto px-4 py-8 space-y-6">
+  <div v-if="initialLoading" class="fixed inset-0 bg-white/80 z-50 flex flex-col items-center justify-center gap-4">
+    <Loader2 class="h-10 w-10 text-[#002B5C] animate-spin" />
+    <p class="text-sm font-bold text-gray-400 uppercase tracking-widest">Načítám data...</p>
+  </div>
+
+  <div v-show="!initialLoading" class="max-w-7xl mx-auto px-4 py-8 space-y-6">
     <!-- Admin Header -->
     <div class="flex items-center justify-between mb-8">
       <div class="flex items-center gap-4">

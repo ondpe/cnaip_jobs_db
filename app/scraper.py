@@ -1,5 +1,4 @@
 import requests
-from bs4 import BeautifulSoup
 import logging
 from typing import List, Dict
 from urllib.parse import urljoin
@@ -31,6 +30,7 @@ class JobScraper:
             return ""
 
     async def scrape_jobs(self, url: str, source_name: str = "") -> List[Dict[str, str]]:
+        from bs4 import BeautifulSoup
         logger.info(f"Startuju scraper pro: {url}")
         try:
             headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'}

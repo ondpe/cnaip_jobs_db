@@ -1,7 +1,6 @@
 import os
 import json
 import logging
-import google.generativeai as genai
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +20,7 @@ def is_likely_job(title: str, url: str, api_key: str = None, model_name: str = "
     if not api_key or not title:
         return True # Pokud není klíč, raději pustíme dál
     
+    import google.generativeai as genai
     try:
         genai.configure(api_key=api_key.strip())
         model = genai.GenerativeModel(model_name)
@@ -48,6 +48,7 @@ def analyze_job_with_ai(text: str, api_key: str = None, model_name: str = "gemin
         add_debug_log("CHYBA: API klíč nebyl předán!")
         return {"is_job": True, "summary": "Chybí API klíč."}
 
+    import google.generativeai as genai
     try:
         clean_key = api_key.strip()
         add_debug_log(f"Volám {model_name} pro text délky {len(text)}")

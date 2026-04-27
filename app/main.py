@@ -9,11 +9,9 @@ from pydantic import BaseModel
 import os
 import logging
 import io
-import pandas as pd
 from typing import List, Optional
 from datetime import datetime
 from dotenv import load_dotenv
-import google.generativeai as genai
 
 load_dotenv()
 
@@ -148,6 +146,7 @@ def get_gemini_key(db: Session = Depends(get_db)):
 
 @app.get("/api/admin/settings/list-models", dependencies=[Depends(authenticate_admin)])
 def list_available_models(key: str):
+    import google.generativeai as genai
     try:
         clean_key = key.strip()
         genai.configure(api_key=clean_key)
@@ -161,6 +160,7 @@ def list_available_models(key: str):
 
 @app.post("/api/admin/settings/gemini-key", dependencies=[Depends(authenticate_admin)])
 def set_gemini_key(key: str, model_name: Optional[str] = "gemini-1.5-flash", db: Session = Depends(get_db)):
+    import google.generativeai as genai
     try:
         clean_key = key.strip()
         genai.configure(api_key=clean_key)
@@ -343,6 +343,7 @@ async def run_scrape(source_id: int, db: Session = Depends(get_db)):
 
 @app.get("/api/admin/export/sources", dependencies=[Depends(authenticate_admin)])
 def export_sources(db: Session = Depends(get_db)):
+    import pandas as pd
     sources = db.query(Source).all()
     data = []
     for s in sources:
@@ -363,6 +364,7 @@ def export_sources(db: Session = Depends(get_db)):
 
 @app.get("/api/admin/export/jobs", dependencies=[Depends(authenticate_admin)])
 def export_jobs(db: Session = Depends(get_db)):
+    import pandas as pd
     jobs = db.query(Job).all()
     data = []
     for j in jobs:
